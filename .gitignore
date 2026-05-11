@@ -1,0 +1,21 @@
+target/
+
+.idea/
+*.iml
+
+# Local planning, review, and generated engineering notes.
+docs/
+ARCHITECTURE.md
+
+.DS_Store
+src/.DS_Store
+src/test/.DS_Store
+
+# Local PLC tag exports and private test data.
+src/test/*.xlsx
+src/test/java/*.xlsx
+
+# Runtime logs and temporary files.
+*.log
+*.tmp
+*.swp

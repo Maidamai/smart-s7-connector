@@ -1,0 +1,288 @@
+# smart-s7-connector
+
+[English](README_EN.md) | 简体中文
+
+smart-s7-connector 是一个轻量级 Java Siemens S7 PLC 通信库，提供 TCP 连接、S7 数据区读写、批量点位读取和注解驱动的对象序列化能力。
+
+项目基于 [s7connector](https://github.com/s7connector/s7connector) 演进，保留其简洁 API 风格，并针对 S7-1200 / S7-1500 场景补充了 Netty 传输、PDU 读窗口拆分和批量点位预合并等能力。
+
+## 特性
+
+- TCP 方式连接 Siemens S7 PLC。
+- 支持 DB、I、Q、M 等 S7 数据区读写。
+- 支持 BOOL、BYTE、INT、DINT、WORD、DWORD、REAL、STRING、DATE、TIME、DATE_AND_TIME、STRUCT 等类型。
+- 支持通过 `@Datablock`、`@S7Variable`、`@Array` 将 DB 数据映射为 Java 对象。
+- 支持点位列表批量读取，连续或近连续点位会先合并为较少的 PLC 读请求。
+- 根据 PDU 协商结果拆分大块读取，避免单次读取超过 PLC 支持窗口。
+- 公共 API 不暴露 Netty 类型，调用方只依赖 `S7Connector` / `S7Serializer`。
+
+## 与 s7connector 的主要差异
+
+smart-s7-connector 保留了上游 s7connector 的核心 API 和注解序列化模型，并在工程化、传输层和批量读取场景做了增强：
+
+| 方向 | smart-s7-connector 的变化 |
+| --- | --- |
+| Maven 坐标 | 使用独立坐标 `io.github.maidamai:smart-s7-connector`，不依赖内部父 POM |
+| 包名 | 使用 `io.github.maidamai.s7connector` |
+| 传输层 | 增加 Netty TCP 传输实现，公共 API 不暴露 Netty 类型 |
+| 大块读取 | 根据 PLC 协商得到的 PDU 长度拆分请求，避免单次读取超过可用窗口 |
+| 批量点位读取 | 对连续或近连续点位先做请求合并，减少逐点网络读取 |
+| S7-1200 / S7-1500 | 补充了面向 S7-1200 / S7-1500 的连接和读取验证 |
+| 错误上下文 | 读写和序列化异常包含 area、DB、offset、length 等排查信息 |
+| 测试覆盖 | 增加本地 loopback、批量读取规划、Netty 传输和并发相关测试 |
+
+批量读取的收益来自“减少 PLC 网络请求次数”，不是改变单个点位的解析规则。例如在本地测试中，1000 个连续 BYTE 点位会按动态读取窗口合并为少量读取请求；当窗口为 96 字节时会拆成 11 次读取，而不是 1000 次逐点读取。
+
+在项目 PLC 环境实测中，单次读取延迟可控制在 40ms 内，批量读取路径的端到端延迟进入百毫秒级，并低于上游逐点读取方式。真实吞吐会受 PLC 型号、网络环境、PDU 长度和点位分布影响，建议以实际现场点表压测结果为准。
+
+## 环境要求
+
+- JDK 8 或更高版本。
+- Maven 3.6 或更高版本。
+- PLC 侧需开启 S7 TCP 通信，并确认机架号、槽号、端口和 DB 访问权限。
+
+默认端口为 `102`。常见参数如下：
+
+| PLC 系列 | rack | slot |
+| --- | ---: | ---: |
+| S7-200 Smart | 0 | 1 |
+| S7-300 / S7-400 | 0 | 2 |
+| S7-1200 / S7-1500 | 0 | 1 或 2，按项目配置确认 |
+
+## 安装
+
+可以先从源码安装到本地 Maven 仓库：
+
+```bash
+git clone https://github.com/Maidamai/smart-s7-connector.git
+cd smart-s7-connector
+mvn test
+mvn install
+```
+
+然后在业务项目中引用：
+
+```xml
+<dependency>
+    <groupId>io.github.maidamai</groupId>
+    <artifactId>smart-s7-connector</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+## 快速开始
+
+### 原始字节读写
+
+```java
+import io.github.maidamai.s7connector.api.DaveArea;
+import io.github.maidamai.s7connector.api.S7Connector;
+import io.github.maidamai.s7connector.api.SiemensPLCS;
+import io.github.maidamai.s7connector.api.factory.S7ConnectorFactory;
+
+import java.io.IOException;
+
+public final class RawReadWriteExample {
+    public static void main(final String[] args) throws IOException {
+        try (S7Connector connector = S7ConnectorFactory.buildTCPConnector(SiemensPLCS.S1500)
+                .withHost("192.168.0.10")
+                .withPort(102)
+                .withRack(0)
+                .withSlot(2)
+                .withTimeout(3000)
+                .build()) {
+
+            final byte[] dbBytes = connector.read(DaveArea.DB, 1, 10, 0);
+            dbBytes[0] = 0x01;
+            connector.write(DaveArea.DB, 1, 0, dbBytes);
+        }
+    }
+}
+```
+
+`read(area, areaNumber, bytes, offset)` 参数含义：
+
+| 参数 | 说明 |
+| --- | --- |
+| `area` | 数据区，例如 `DaveArea.DB`、`DaveArea.INPUTS`、`DaveArea.OUTPUTS`、`DaveArea.FLAGS` |
+| `areaNumber` | DB 编号；非 DB 区通常传 `0` 或业务约定值 |
+| `bytes` | 读取字节数 |
+| `offset` | 起始字节偏移 |
+
+`write(area, areaNumber, offset, buffer)` 会从指定偏移写入完整 `buffer`。
+
+### 对象序列化
+
+```java
+import io.github.maidamai.s7connector.api.S7Connector;
+import io.github.maidamai.s7connector.api.S7Serializer;
+import io.github.maidamai.s7connector.api.S7Type;
+import io.github.maidamai.s7connector.api.SiemensPLCS;
+import io.github.maidamai.s7connector.api.annotation.Datablock;
+import io.github.maidamai.s7connector.api.annotation.S7Variable;
+import io.github.maidamai.s7connector.api.factory.S7ConnectorFactory;
+import io.github.maidamai.s7connector.api.factory.S7SerializerFactory;
+
+import java.io.IOException;
+
+@Datablock
+public final class MotorState {
+    @S7Variable(type = S7Type.BOOL, byteOffset = 0, bitOffset = 0)
+    private Boolean running;
+
+    @S7Variable(type = S7Type.INT, byteOffset = 2)
+    private Short speed;
+
+    public Boolean getRunning() {
+        return this.running;
+    }
+
+    public Short getSpeed() {
+        return this.speed;
+    }
+}
+
+public final class BeanReadExample {
+    public static void main(final String[] args) throws IOException {
+        try (S7Connector connector = S7ConnectorFactory.buildTCPConnector(SiemensPLCS.S1500)
+                .withHost("192.168.0.10")
+                .withPort(102)
+                .withRack(0)
+                .withSlot(2)
+                .withTimeout(3000)
+                .build()) {
+
+            final S7Serializer serializer = S7SerializerFactory.buildSerializer(connector);
+            final MotorState state = serializer.dispense(MotorState.class, 1, 0);
+            System.out.println("running=" + state.getRunning() + ", speed=" + state.getSpeed());
+        }
+    }
+}
+```
+
+### 批量点位读取
+
+```java
+import io.github.maidamai.s7connector.api.DaveArea;
+import io.github.maidamai.s7connector.api.S7Connector;
+import io.github.maidamai.s7connector.api.S7Serializer;
+import io.github.maidamai.s7connector.api.S7Type;
+import io.github.maidamai.s7connector.api.SiemensPLCS;
+import io.github.maidamai.s7connector.api.factory.S7ConnectorFactory;
+import io.github.maidamai.s7connector.api.factory.S7SerializerFactory;
+import io.github.maidamai.s7connector.bean.PlcS7PointVariable;
+
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+
+public final class BatchPointReadExample {
+    public static void main(final String[] args) throws IOException {
+        try (S7Connector connector = S7ConnectorFactory.buildTCPConnector(SiemensPLCS.S1500)
+                .withHost("192.168.0.10")
+                .withPort(102)
+                .withRack(0)
+                .withSlot(2)
+                .withTimeout(3000)
+                .build()) {
+
+            final S7Serializer serializer = S7SerializerFactory.buildSerializer(connector);
+            final List<PlcS7PointVariable> points = Arrays.asList(
+                    new PlcS7PointVariable(1, 0, 0, 1, DaveArea.DB, S7Type.BOOL, Boolean.class),
+                    new PlcS7PointVariable(1, 2, 0, 2, DaveArea.DB, S7Type.INT, Short.class),
+                    new PlcS7PointVariable(1, 4, 0, 4, DaveArea.DB, S7Type.DINT, Long.class));
+
+            final List<?> values = (List<?>) serializer.dispense(points);
+            System.out.println(values);
+        }
+    }
+}
+```
+
+### 单通道写入与多通道读取
+
+适合少量控制通道写入、大量状态通道回读这类场景。单通道写入会先读取该通道所在字节范围并合并写回，避免覆盖同一字节内的其他 bit；多通道读取会按区域、DB 和偏移自动规划为较少的 PLC 读取请求。
+
+```java
+import io.github.maidamai.s7connector.api.DaveArea;
+import io.github.maidamai.s7connector.api.S7Connector;
+import io.github.maidamai.s7connector.api.S7Serializer;
+import io.github.maidamai.s7connector.api.S7Type;
+import io.github.maidamai.s7connector.api.SiemensPLCS;
+import io.github.maidamai.s7connector.api.factory.S7ConnectorFactory;
+import io.github.maidamai.s7connector.api.factory.S7SerializerFactory;
+import io.github.maidamai.s7connector.bean.PlcS7PointVariable;
+
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+
+public final class WriteThenBatchReadExample {
+    public static void main(final String[] args) throws IOException {
+        try (S7Connector connector = S7ConnectorFactory.buildTCPConnector(SiemensPLCS.S1500)
+                .withHost("192.168.0.10")
+                .withPort(102)
+                .withRack(0)
+                .withSlot(2)
+                .withTimeout(3000)
+                .build()) {
+
+            final S7Serializer serializer = S7SerializerFactory.buildSerializer(connector);
+            final PlcS7PointVariable startCommand =
+                    new PlcS7PointVariable(1, 0, 0, 1, DaveArea.DB, S7Type.BOOL, Boolean.class);
+            serializer.store(Boolean.TRUE, startCommand);
+
+            final List<PlcS7PointVariable> statusPoints = Arrays.asList(
+                    new PlcS7PointVariable(1, 0, 1, 1, DaveArea.DB, S7Type.BOOL, Boolean.class),
+                    new PlcS7PointVariable(1, 2, 0, 2, DaveArea.DB, S7Type.INT, Short.class),
+                    new PlcS7PointVariable(1, 4, 0, 4, DaveArea.DB, S7Type.REAL, Float.class));
+
+            final List<?> values = (List<?>) serializer.dispense(statusPoints);
+            System.out.println(values);
+        }
+    }
+}
+```
+
+## 测试与验证
+
+```bash
+mvn test
+```
+
+默认测试使用本地 loopback 或内存对象验证协议编解码、PDU 窗口拆分、批量读取规划和序列化行为。
+
+如需连接真实 PLC 运行集成验证，可以通过系统属性传入连接参数：
+
+```bash
+mvn test -Dplc.host=192.168.0.10 -Dplc.port=102 -Dplc.rack=0 -Dplc.slot=2
+```
+
+## 项目结构
+
+```text
+.
+├── pom.xml
+├── README.md
+├── README_EN.md
+├── LICENSE
+├── NOTICE
+├── LICENSE_LIBNODAVE.txt
+└── src
+    ├── main/java/io/github/maidamai/s7connector
+    │   ├── api
+    │   ├── bean
+    │   ├── exception
+    │   └── impl
+    └── test/java/io/github/maidamai/s7connector
+```
+
+## 许可证与来源
+
+smart-s7-connector 使用 Apache License 2.0 开源。
+
+本项目基于 [s7connector](https://github.com/s7connector/s7connector) 演进。s7connector 使用 Apache License 2.0，并声明其基于 libnodave。仓库中保留了 `NOTICE` 和 `LICENSE_LIBNODAVE.txt`，用于说明上游来源和相关声明。
+
+## 免责声明
+
+PLC 通信会直接影响现场设备状态。请先在仿真环境、测试 PLC 或离线 DB 中验证读写逻辑，再连接生产设备。写入操作应由业务系统自行做好权限控制、范围校验和操作审计。

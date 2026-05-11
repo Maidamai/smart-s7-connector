@@ -1,0 +1,11 @@
+smart-s7-connector
+Copyright 2026 smart-s7-connector contributors
+
+This project is based on s7connector:
+https://github.com/s7connector/s7connector
+
+s7connector is licensed under the Apache License, Version 2.0.
+
+s7connector includes code and protocol ideas derived from libnodave.
+The libnodave attribution notice retained by s7connector is included in
+LICENSE_LIBNODAVE.txt.
