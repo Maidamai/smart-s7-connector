@@ -39,6 +39,9 @@ class NettyS7TransportCancellationTest {
                 transport.connect();
                 final byte[] request = tpkt(new byte[]{0x02, (byte) 0xf0, (byte) 0x80, 0x01});
                 final AtomicReference<Throwable> failure = new AtomicReference<>();
+                // observed on the worker itself: the interrupt status of an
+                // already-terminated thread is not reliably observable
+                final AtomicReference<Boolean> interruptRestored = new AtomicReference<>();
                 final CountDownLatch requestSent = new CountDownLatch(1);
                 final Thread worker = new Thread(() -> {
                     try {
@@ -46,6 +49,7 @@ class NettyS7TransportCancellationTest {
                         transport.writeAndRead(request, request.length);
                     } catch (final Throwable t) {
                         failure.set(t);
+                        interruptRestored.set(Boolean.valueOf(Thread.currentThread().isInterrupted()));
                     }
                 }, "s7-interrupted-reader");
                 try {
@@ -63,7 +67,8 @@ class NettyS7TransportCancellationTest {
                             "cause should be InterruptedException but was " + thrown.getCause());
                     assertTrue(transport.isClosed(), "interrupt should close the transport");
                     assertFalse(transport.hasPendingResponse(), "interrupt should clear the pending response future");
-                    assertTrue(worker.isInterrupted(), "interrupt flag should be restored on the worker thread");
+                    assertTrue(interruptRestored.get().booleanValue(),
+                            "interrupt flag should be restored on the worker thread");
 
                     assertThrows(S7TransportException.class, () -> transport.writeAndRead(request, request.length),
                             "closed transport should reject further writes");
