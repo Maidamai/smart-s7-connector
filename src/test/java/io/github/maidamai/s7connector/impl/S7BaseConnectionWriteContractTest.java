@@ -58,7 +58,7 @@ class S7BaseConnectionWriteContractTest {
         assertTrue(message.contains("length=78"), "message should carry the failing chunk length, but was: " + message);
         assertTrue(message.contains("confirmedWrittenBytes=222"),
                 "message must state how many bytes the PLC acknowledged before the failure, but was: " + message);
-        assertTrue(message.contains("0x0a") || message.contains("0x0A"),
+        assertTrue(message.contains("0x000A"),
                 "message should carry the raw PLC status code in hex, but was: " + message);
     }
 

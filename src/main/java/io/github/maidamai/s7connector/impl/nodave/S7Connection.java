@@ -390,14 +390,9 @@ public abstract class S7Connection {
 
             if (errorState == Nodave.RESULT_OK) {
                 final PDU p2 = new PDU(this.msgIn, this.PDUstartIn);
-                p2.setupReceivedPDU();
-
-                if (p2.mem[p2.param + 0] == PDU.FUNC_WRITE) {
-                    if (p2.mem[p2.data + 0] == (byte) 0xFF) {
-                        return Nodave.RESULT_OK;
-                    }
-                } else {
-                    errorState |= 4096;
+                errorState = p2.setupReceivedPDU();
+                if (errorState == Nodave.RESULT_OK) {
+                    errorState = p2.testWriteResult();
                 }
             }
             return errorState;

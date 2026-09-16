@@ -3,10 +3,12 @@ package io.github.maidamai.s7connector.impl;
 
 import io.github.maidamai.s7connector.api.DaveArea;
 import io.github.maidamai.s7connector.api.S7Connector;
+import io.github.maidamai.s7connector.exception.S7Exception;
 import io.github.maidamai.s7connector.impl.nodave.Nodave;
 import io.github.maidamai.s7connector.impl.nodave.S7Connection;
 
 import java.io.IOException;
+import java.util.Locale;
 
 /**
  * Base-Connection for the S7-PLC Connection Libnodave:
@@ -109,6 +111,15 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
      */
     @Override
     public synchronized void write(final DaveArea area, final int areaNumber, final int offset, final byte[] buffer) throws IOException {
+        this.writeChunked(area, areaNumber, offset, buffer, 0);
+    }
+
+    private void writeChunked(
+            final DaveArea area,
+            final int areaNumber,
+            final int offset,
+            final byte[] buffer,
+            final int confirmedWrittenBytes) throws IOException {
         if (buffer.length > this.maxReadBytes) {
             // Split buffer
             final byte[] subBuffer = new byte[this.maxReadBytes];
@@ -117,14 +128,44 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
             System.arraycopy(buffer, 0, subBuffer, 0, subBuffer.length);
             System.arraycopy(buffer, this.maxReadBytes, nextBuffer, 0, nextBuffer.length);
 
-            this.write(area, areaNumber, offset, subBuffer);
-            this.write(area, areaNumber, offset + subBuffer.length, nextBuffer);
+            this.writeChunked(area, areaNumber, offset, subBuffer, confirmedWrittenBytes);
+            this.writeChunked(area, areaNumber, offset + subBuffer.length, nextBuffer,
+                    confirmedWrittenBytes + subBuffer.length);
         } else {
             // Size fits
             final int ret = this.dc.writeBytes(area, areaNumber, offset, buffer.length, buffer);
-            // Check return-value
-            checkResult(ret);
+            if (ret != Nodave.RESULT_OK) {
+                throw writeFailure(area, areaNumber, offset, buffer.length, confirmedWrittenBytes, ret);
+            }
         }
+    }
+
+    /**
+     * Builds the public failure for a rejected write: it keeps the raw PLC
+     * status code and the target coordinates, and states how many bytes the
+     * PLC has already acknowledged. Acknowledged chunks are not rolled back;
+     * after a timeout the outcome of the failing chunk itself is unknown.
+     */
+    private static S7Exception writeFailure(
+            final DaveArea area,
+            final int areaNumber,
+            final int offset,
+            final int length,
+            final int confirmedWrittenBytes,
+            final int result) {
+        final StringBuilder message = new StringBuilder();
+        message.append("S7 write failed: status=").append(result)
+                .append(" (0x").append(String.format(Locale.ROOT, "%04X", result & 0xFFFF)).append(')')
+                .append(": ").append(Nodave.strerror(result))
+                .append("; area=").append(area.name())
+                .append(", db=").append(areaNumber)
+                .append(", offset=").append(offset)
+                .append(", length=").append(length)
+                .append(", confirmedWrittenBytes=").append(confirmedWrittenBytes);
+        if (confirmedWrittenBytes > 0) {
+            message.append(" (the PLC acknowledged the earlier chunks; they were not rolled back)");
+        }
+        return new S7Exception(message.toString());
     }
 
     private static int calculateMaxReadBytes(final int negotiatedPduLength) {

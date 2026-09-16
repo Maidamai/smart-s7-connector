@@ -457,16 +457,22 @@ public final class PDU {
     }
 
     int testWriteResult() {
-        int res = Nodave.RESULT_CANNOT_EVALUATE_PDU;
         if (this.mem[this.param] != FUNC_WRITE) {
             return Nodave.RESULT_UNEXPECTED_FUNC;
         }
-        if ((this.mem[this.data] == 255)) {
-            res = Nodave.RESULT_OK;
-        } else {
-            res = this.mem[this.data];
+        // This library sends exactly one item per write request; a response
+        // acknowledging a different count cannot be matched to the request.
+        if (Nodave.USByte(this.mem, this.param + 1) != 1) {
+            return Nodave.RESULT_CANNOT_EVALUATE_PDU;
         }
-        return res;
+        if (this.dlen < 1) {
+            return Nodave.RESULT_CANNOT_EVALUATE_PDU;
+        }
+        final int itemStatus = Nodave.USByte(this.mem, this.data);
+        if (itemStatus == 0xFF) {
+            return Nodave.RESULT_OK;
+        }
+        return itemStatus;
     }
 
 }
