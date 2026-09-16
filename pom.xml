@@ -44,7 +44,12 @@
     </issueManagement>
 
     <properties>
-        <maven.compiler.release>8</maven.compiler.release>
+        <!-- Java 8 compatibility: on JDK 9+ the jdk9plus profile sets
+             maven.compiler.release=8 (API-checked cross-compilation);
+             on a JDK 8 toolchain the release flag does not exist, so the
+             default source/target pair compiles natively. -->
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.jupiter.version>5.14.2</junit.jupiter.version>
         <maven.surefire.version>3.5.4</maven.surefire.version>
@@ -110,6 +115,18 @@
     </build>
 
     <profiles>
+        <!-- API-checked Java 8 cross-compilation whenever the build runs on
+             JDK 9 or newer (the local default and all CI legs except the
+             JDK 8 one, which compiles natively via source/target). -->
+        <profile>
+            <id>jdk9plus-release</id>
+            <activation>
+                <jdk>[9,)</jdk>
+            </activation>
+            <properties>
+                <maven.compiler.release>8</maven.compiler.release>
+            </properties>
+        </profile>
         <!-- Release artifact generation. Never activated implicitly; the
              actual upload is a manual, maintainer-only step described in
              docs/releasing.md and requires credentials that must never

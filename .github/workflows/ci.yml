@@ -1,5 +1,8 @@
 # Minimal trusted CI: build and verify on a JDK matrix.
 # verify runs the default suite only; the plc-live-it profile is opt-in and not triggered.
+# Java 8 target: JDK 9+ legs compile with release=8 (API-checked, see the
+# jdk9plus-release profile in pom.xml); the JDK 8 leg compiles natively via
+# source/target, so no leg passes the release flag to a JDK 8 javac.
 name: CI
 
 on:
