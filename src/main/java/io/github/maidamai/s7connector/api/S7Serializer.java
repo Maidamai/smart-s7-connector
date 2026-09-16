@@ -41,6 +41,12 @@ public interface S7Serializer {
     /**
      * Stores an Object to the Datablock.
      *
+     * <p><b>Full-block overwrite semantics:</b> the mapped block is assembled
+     * from an all-zero buffer, so memory not covered by a mapped field
+     * (gaps, unset fields, and other bits in partially used bytes of mapped
+     * fields) is written as zero. To update a single point without touching
+     * surrounding bytes, use {@link #store(Object, PlcS7PointVariable)}.</p>
+     *
      * @param bean       the bean
      * @param dbNum      the db num
      * @param byteOffset the byte offset
@@ -95,7 +101,8 @@ public interface S7Serializer {
     Object dispense(List<PlcS7PointVariable> plcs7PointVariableList) throws S7Exception;
 
     /**
-     * Stores an Object to the Datablock.
+     * Stores an Object to the Datablock with full-block overwrite semantics
+     * (see {@link #store(Object, int, int)}).
      *
      * @param bean       the bean
      * @param daveArea   the daveArea
@@ -105,7 +112,16 @@ public interface S7Serializer {
     void store(Object bean,DaveArea daveArea, int dbNum, int byteOffset);
 
     /**
-     * Stores an Object to the Datablock.
+     * Stores a single point value.
+     *
+     * <p><b>Read-modify-write semantics:</b> the point's memory range is
+     * read, the value is merged into it, and the range is written back. The
+     * read-modify-write runs as one critical section on the connector's
+     * monitor, so concurrent serializers sharing the same connector cannot
+     * lose updates against each other. This is <em>not</em> an end-to-end
+     * guarantee: the PLC program or other clients can still change the same
+     * memory outside this process. Write the containing block explicitly if
+     * you need to control every byte.</p>
      *
      * @param plcS7PointVariable plcS7PointVariable
      */

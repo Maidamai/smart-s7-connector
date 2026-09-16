@@ -344,11 +344,17 @@ public final class S7SerializerImpl implements S7Serializer {
     }
 
     @Override
-    public void store(Object bean,PlcS7PointVariable plcS7PointVariable) {
+    public synchronized void store(Object bean,PlcS7PointVariable plcS7PointVariable) {
         try {
-            final byte[] buffer = this.connector.read(plcS7PointVariable.getRegisterType(), plcS7PointVariable.getDbNum(), plcS7PointVariable.getSize(), plcS7PointVariable.getByteOffset());
-            plcS7PointVariable.getType().getSerializer().newInstance().insert(bean,buffer,0,plcS7PointVariable.getBitOffset(),plcS7PointVariable.getSize());
-            this.connector.write(plcS7PointVariable.getRegisterType(),  plcS7PointVariable.getDbNum(), plcS7PointVariable.getByteOffset(), buffer);
+            // One critical section for the whole read-modify-write, on the
+            // same monitor the connector's read/write use, so two serializers
+            // sharing a connector cannot interleave and lose updates on the
+            // same byte.
+            synchronized (this.connector) {
+                final byte[] buffer = this.connector.read(plcS7PointVariable.getRegisterType(), plcS7PointVariable.getDbNum(), plcS7PointVariable.getSize(), plcS7PointVariable.getByteOffset());
+                plcS7PointVariable.getType().getSerializer().newInstance().insert(bean,buffer,0,plcS7PointVariable.getBitOffset(),plcS7PointVariable.getSize());
+                this.connector.write(plcS7PointVariable.getRegisterType(),  plcS7PointVariable.getDbNum(), plcS7PointVariable.getByteOffset(), buffer);
+            }
         } catch (final IOException e) {
             throw new S7Exception("store dbnum(" + plcS7PointVariable.getDbNum()
                     + ") registerType(" + plcS7PointVariable.getRegisterType()
