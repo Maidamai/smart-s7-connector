@@ -9,6 +9,11 @@ docs/*
 !docs/provenance.md
 !docs/adoption.md
 !docs/dependency-tree.txt
+!docs/api-contract.md
+!docs/migration.md
+!docs/compatibility.md
+!docs/performance.md
+!docs/releasing.md
 ARCHITECTURE.md
 
 .DS_Store
