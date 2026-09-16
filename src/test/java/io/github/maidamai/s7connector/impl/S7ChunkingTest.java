@@ -192,8 +192,7 @@ class S7ChunkingTest {
                 plantReadAck(bitAddress / 8, length);
                 return Nodave.RESULT_OK;
             }
-            throw new IllegalStateException("unexpected request function " + function);
-        }
+            throw new IllegalStateException("unexpected request function " + function);        }
 
         private void plantWriteAck() {
             Arrays.fill(this.msgIn, 0, 32, (byte) 0);
@@ -204,6 +203,7 @@ class S7ChunkingTest {
             this.msgIn[12] = PDU.FUNC_WRITE;
             this.msgIn[13] = 1;
             this.msgIn[14] = (byte) 0xFF;
+            this.answLen = 15;
         }
 
         private void plantReadAck(final int offset, final int length) {
@@ -219,6 +219,7 @@ class S7ChunkingTest {
             this.msgIn[15] = 0x04; // length in bits
             Nodave.setUSBEWord(this.msgIn, 16, data.length * 8);
             System.arraycopy(data, 0, this.msgIn, 18, data.length);
+            this.answLen = 18 + data.length;
         }
 
         private static int readUnsigned24(final byte[] bytes, final int offset) {

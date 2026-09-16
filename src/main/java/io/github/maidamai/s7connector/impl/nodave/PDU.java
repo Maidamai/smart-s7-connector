@@ -392,19 +392,30 @@ public final class PDU {
     }
 
     /**
-     * Setup a PDU instance to reflect the structure of data present in the
-     * memory area given to initHeader. Needs valid header.
+     * Setup a PDU instance to reflect the structure of the received response
+     * present in the memory area. The caller must pass how many S7 PDU bytes
+     * were actually received, so that a lying or truncated frame cannot make
+     * the parser read beyond the received data.
+     *
+     * @param s7PduBytesAvailable bytes actually received for this S7 PDU
+     * @return 0, or the PDU header error code for type-2/3 headers, or a
+     *         negative result code for frames that cannot be trusted
      */
-
-    public int setupReceivedPDU() {
+    public int setupReceivedPDU(final int s7PduBytesAvailable) {
         int res = Nodave.RESULT_CANNOT_EVALUATE_PDU; // just assume the worst
-        if ((this.mem[this.header + 1] == 2) || (this.mem[this.header + 1] == 3)) {
+        if (s7PduBytesAvailable < 10) {
+            return Nodave.RESULT_SHORT_PACKET;
+        }
+        if (this.mem[this.header] != 0x32) {
+            return Nodave.RESULT_CANNOT_EVALUATE_PDU;
+        }
+        final int pduType = Nodave.USByte(this.mem, this.header + 1);
+        if ((pduType == 2) || (pduType == 3)) {
             this.hlen = 12;
             res = Nodave.USBEWord(this.mem, this.header + 10);
         } else {
-            this.error = 0;
-            this.hlen = 10;
-            res = 0;
+            // valid responses are ack-data PDUs (type 2/3); type 1 is a request
+            return Nodave.RESULT_CANNOT_EVALUATE_PDU;
         }
         this.param = this.header + this.hlen;
         this.plen = Nodave.USBEWord(this.mem, this.header + 6);
@@ -412,6 +423,9 @@ public final class PDU {
         this.dlen = Nodave.USBEWord(this.mem, this.header + 8);
         this.udlen = 0;
         this.udata = 0;
+        if (this.hlen + this.plen + this.dlen > s7PduBytesAvailable) {
+            return Nodave.RESULT_SHORT_PACKET;
+        }
         return res;
     }
 
@@ -450,8 +464,12 @@ public final class PDU {
             } else {
                 res = Nodave.RESULT_UNKNOWN_DATA_UNIT_SIZE;
             }
+            if (res == Nodave.RESULT_OK && this.udlen > this.dlen - 4) {
+                // the data head announces more bytes than the frame carries
+                res = Nodave.RESULT_SHORT_PACKET;
+            }
         } else {
-            res = this.mem[this.data];
+            res = Nodave.USByte(this.mem, this.data);
         }
         return res;
     }

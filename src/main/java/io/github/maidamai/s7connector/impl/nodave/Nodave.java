@@ -74,8 +74,9 @@ public final class Nodave {
 	public final static int RESULT_OK = 0; /* means all ok */
 	public final static int RESULT_SHORT_PACKET = -1024;
 	public final static int RESULT_TIMEOUT = -1025;
-	public final static int RESULT_UNEXPECTED_FUNC = -128;
-	public final static int RESULT_UNKNOWN_DATA_UNIT_SIZE = -129;
+    public final static int RESULT_UNEXPECTED_FUNC = -128;
+    public final static int RESULT_UNEXPECTED_REFERENCE = -130; /* response PDU number does not match the request */
+    public final static int RESULT_UNKNOWN_DATA_UNIT_SIZE = -129;
 
 	public final static int RESULT_UNKNOWN_ERROR = -125;
 	/* means the data address is beyond the CPUs address range */
@@ -252,6 +253,8 @@ public final class Nodave {
 			return "No data from I/O module";
 		case Nodave.RESULT_UNEXPECTED_FUNC:
 			return "Unexpected function code in answer";
+		case Nodave.RESULT_UNEXPECTED_REFERENCE:
+			return "Response PDU number does not match the request";
 		case Nodave.RESULT_UNKNOWN_DATA_UNIT_SIZE:
 			return "PLC responds wit an unknown data type";
 		case Nodave.RESULT_SHORT_PACKET:

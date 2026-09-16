@@ -98,6 +98,7 @@ class S7ConnectionConcurrencyTest {
             this.msgIn[12] = PDU.FUNC_WRITE;
             this.msgIn[13] = 0x01;
             this.msgIn[14] = (byte) 0xFF;
+            this.answLen = 15;
             return Nodave.RESULT_OK;
         }
     }

@@ -18,7 +18,10 @@ import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -34,6 +37,9 @@ public final class LocalS1500Server implements AutoCloseable {
     private static final int PDU_HEADER_LENGTH = 10;
     private static final int READ_PARAM_START = PDU_START + PDU_HEADER_LENGTH;
     private static final int READ_ITEM_START = READ_PARAM_START + 2;
+    private static final int WRITE_ITEM_LENGTH = 12;
+    private static final int WRITE_DATA_START = READ_PARAM_START + 2 + WRITE_ITEM_LENGTH;
+    private static final int WRITE_PAYLOAD_START = WRITE_DATA_START + 4;
     private static final int DB_AREA_CODE = DaveArea.DB.getCode();
 
     private final EventLoopGroup bossGroup;
@@ -42,7 +48,12 @@ public final class LocalS1500Server implements AutoCloseable {
     private final int negotiatedPduLength;
     private final byte[] dbMemory;
     private final BlockingQueue<ReadRequest> readRequests;
+    private final BlockingQueue<WriteRequest> writeRequests;
+    private final ConcurrentLinkedQueue<Byte> scriptedWriteItemStatuses;
+    private final ConcurrentLinkedQueue<ScriptedResponse> scriptedRawResponses;
+    private final List<Integer> requestS7PduLengths;
     private final AtomicInteger readRequestCount;
+    private final AtomicInteger writeRequestCount;
 
     public LocalS1500Server(final int negotiatedPduLength, final byte[] dbMemory) throws IOException {
         if (negotiatedPduLength <= 0) {
@@ -54,7 +65,12 @@ public final class LocalS1500Server implements AutoCloseable {
         this.negotiatedPduLength = negotiatedPduLength;
         this.dbMemory = dbMemory.clone();
         this.readRequests = new LinkedBlockingQueue<>();
+        this.writeRequests = new LinkedBlockingQueue<>();
+        this.scriptedWriteItemStatuses = new ConcurrentLinkedQueue<>();
+        this.scriptedRawResponses = new ConcurrentLinkedQueue<>();
+        this.requestS7PduLengths = new CopyOnWriteArrayList<>();
         this.readRequestCount = new AtomicInteger(0);
+        this.writeRequestCount = new AtomicInteger(0);
         this.bossGroup = new NioEventLoopGroup(1);
         this.workerGroup = new NioEventLoopGroup(1);
         final ServerBootstrap bootstrap = new ServerBootstrap();
@@ -90,10 +106,51 @@ public final class LocalS1500Server implements AutoCloseable {
         return this.readRequestCount.get();
     }
 
+    public int getWriteRequestCount() {
+        return this.writeRequestCount.get();
+    }
+
+    /**
+     * S7 PDU lengths (without TPKT/COTP) of all read and write requests the
+     * server has seen, in order; lets tests assert no request exceeded the
+     * negotiated PDU length.
+     */
+    public List<Integer> getRequestS7PduLengths() {
+        return this.requestS7PduLengths;
+    }
+
+    /**
+     * Queues a raw response frame (full TPKT frame) that is sent instead of
+     * the generated response for the next request. With
+     * {@code echoRequestNumber} the scripted frame's PDU number is patched
+     * from the incoming request, so tests can inject malformed frames that
+     * still pass the reference check, or valid frames with a wrong reference.
+     */
+    public void queueRawResponse(final byte[] tpktFrame, final boolean echoRequestNumber) {
+        this.scriptedRawResponses.add(new ScriptedResponse(tpktFrame.clone(), echoRequestNumber));
+    }
+
+    /**
+     * Queues an item status the next write response shall carry instead of
+     * 0xFF; the write is then NOT applied to the local memory, mirroring a
+     * PLC that rejects the item.
+     */
+    public void queueWriteItemStatus(final int itemStatus) {
+        this.scriptedWriteItemStatuses.add((byte) itemStatus);
+    }
+
     public ReadRequest takeReadRequest() throws InterruptedException {
         final ReadRequest request = this.readRequests.poll(1, TimeUnit.SECONDS);
         if (request == null) {
             throw new AssertionError("local S7-1500 server did not receive a read request");
+        }
+        return request;
+    }
+
+    public WriteRequest takeWriteRequest() throws InterruptedException {
+        final WriteRequest request = this.writeRequests.poll(1, TimeUnit.SECONDS);
+        if (request == null) {
+            throw new AssertionError("local S7-1500 server did not receive a write request");
         }
         return request;
     }
@@ -109,8 +166,20 @@ public final class LocalS1500Server implements AutoCloseable {
         if (isIsoConnectRequest(request)) {
             return tpkt(new byte[]{0x02, (byte) 0xf0, (byte) 0x80});
         }
+        final ScriptedResponse scripted = this.scriptedRawResponses.poll();
+        if (scripted != null) {
+            if (scripted.echoRequestNumber && request.length > PDU_START + 5
+                    && scripted.frame.length > PDU_START + 5) {
+                scripted.frame[PDU_START + 4] = request[PDU_START + 4];
+                scripted.frame[PDU_START + 5] = request[PDU_START + 5];
+            }
+            return scripted.frame;
+        }
         if (isPduNegotiationRequest(request)) {
-            return pduNegotiationResponse(this.negotiatedPduLength);
+            return pduNegotiationResponse(request, this.negotiatedPduLength);
+        }
+        if (isWriteRequest(request)) {
+            return writeResponse(request);
         }
         if (isReadRequest(request)) {
             return readResponse(request);
@@ -132,6 +201,11 @@ public final class LocalS1500Server implements AutoCloseable {
                 && request[READ_PARAM_START] == 0x04;
     }
 
+    private static boolean isWriteRequest(final byte[] request) {
+        return request.length > WRITE_PAYLOAD_START && request[PDU_START] == 0x32
+                && request[READ_PARAM_START] == 0x05;
+    }
+
     private byte[] readResponse(final byte[] request) {
         final int length = readUnsignedWord(request, READ_ITEM_START + 4);
         final int dbNumber = readUnsignedWord(request, READ_ITEM_START + 6);
@@ -145,11 +219,43 @@ public final class LocalS1500Server implements AutoCloseable {
             throw new IllegalArgumentException("read is outside local DB memory, dbNumber=" + dbNumber
                     + ", offset=" + offset + ", length=" + length + ", memoryLength=" + this.dbMemory.length);
         }
+        this.requestS7PduLengths.add(Integer.valueOf(request.length - PDU_START));
         this.readRequestCount.incrementAndGet();
         this.readRequests.add(new ReadRequest(dbNumber, offset, length));
         final byte[] data = new byte[length];
         System.arraycopy(this.dbMemory, offset, data, 0, length);
         return readResponseFrame(request, data);
+    }
+
+    private byte[] writeResponse(final byte[] request) {
+        final int length = readUnsignedWord(request, READ_ITEM_START + 4);
+        final int dbNumber = readUnsignedWord(request, READ_ITEM_START + 6);
+        final int area = request[READ_ITEM_START + 8] & 0xFF;
+        final int bitAddress = readUnsigned24(request, READ_ITEM_START + 9);
+        final int offset = bitAddress / 8;
+        if (area != DB_AREA_CODE) {
+            throw new IllegalArgumentException("only DB write is supported by local S7-1500 server, area=" + area);
+        }
+        if (length < 0 || WRITE_PAYLOAD_START + length > request.length) {
+            throw new IllegalArgumentException("write payload exceeds the received frame, length=" + length);
+        }
+        if (bitAddress % 8 != 0) {
+            throw new IllegalArgumentException("only byte-aligned writes are supported, bitAddress=" + bitAddress);
+        }
+        this.requestS7PduLengths.add(Integer.valueOf(request.length - PDU_START));
+        this.writeRequestCount.incrementAndGet();
+        this.writeRequests.add(new WriteRequest(dbNumber, offset, length));
+
+        final Byte scriptedStatus = this.scriptedWriteItemStatuses.poll();
+        final byte itemStatus = scriptedStatus == null ? (byte) 0xFF : scriptedStatus.byteValue();
+        if (itemStatus == (byte) 0xFF) {
+            if (offset < 0 || offset + length > this.dbMemory.length) {
+                throw new IllegalArgumentException("write is outside local DB memory, dbNumber=" + dbNumber
+                        + ", offset=" + offset + ", length=" + length + ", memoryLength=" + this.dbMemory.length);
+            }
+            System.arraycopy(request, WRITE_PAYLOAD_START, this.dbMemory, offset, length);
+        }
+        return writeResponseFrame(request, itemStatus);
     }
 
     private static byte[] readResponseFrame(final byte[] request, final byte[] data) {
@@ -175,15 +281,33 @@ public final class LocalS1500Server implements AutoCloseable {
         return tpkt(payload);
     }
 
-    private static byte[] pduNegotiationResponse(final int pduLength) {
+    private static byte[] writeResponseFrame(final byte[] request, final byte itemStatus) {
+        final byte[] payload = new byte[COTP_LENGTH + 12 + 2 + 1];
+        payload[0] = 0x02;
+        payload[1] = (byte) 0xf0;
+        payload[2] = (byte) 0x80;
+        final int pdu = COTP_LENGTH;
+        payload[pdu] = 0x32;
+        payload[pdu + 1] = 0x03;
+        payload[pdu + 4] = request[PDU_START + 4];
+        payload[pdu + 5] = request[PDU_START + 5];
+        writeUnsignedWord(payload, pdu + 6, 2);
+        writeUnsignedWord(payload, pdu + 8, 1);
+        payload[pdu + 12] = 0x05;
+        payload[pdu + 13] = 0x01;
+        payload[pdu + 14] = itemStatus;
+        return tpkt(payload);
+    }
+
+    private static byte[] pduNegotiationResponse(final byte[] request, final int pduLength) {
         final byte[] payload = new byte[23];
         payload[0] = 0x02;
         payload[1] = (byte) 0xf0;
         payload[2] = (byte) 0x80;
         payload[3] = 0x32;
         payload[4] = 0x03;
-        payload[8] = 0x01;
-        payload[9] = 0x00;
+        payload[7] = request[PDU_START + 4];
+        payload[8] = request[PDU_START + 5];
         payload[10] = 0x08;
         payload[15] = (byte) 0xf0;
         payload[16] = 0x00;
@@ -261,6 +385,40 @@ public final class LocalS1500Server implements AutoCloseable {
 
         public int getLength() {
             return this.length;
+        }
+    }
+
+    public static final class WriteRequest {
+        private final int dbNumber;
+        private final int offset;
+        private final int length;
+
+        private WriteRequest(final int dbNumber, final int offset, final int length) {
+            this.dbNumber = dbNumber;
+            this.offset = offset;
+            this.length = length;
+        }
+
+        public int getDbNumber() {
+            return this.dbNumber;
+        }
+
+        public int getOffset() {
+            return this.offset;
+        }
+
+        public int getLength() {
+            return this.length;
+        }
+    }
+
+    private static final class ScriptedResponse {
+        private final byte[] frame;
+        private final boolean echoRequestNumber;
+
+        private ScriptedResponse(final byte[] frame, final boolean echoRequestNumber) {
+            this.frame = frame;
+            this.echoRequestNumber = echoRequestNumber;
         }
     }
 }

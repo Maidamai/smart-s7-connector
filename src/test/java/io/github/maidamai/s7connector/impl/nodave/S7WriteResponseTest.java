@@ -140,7 +140,7 @@ class S7WriteResponseTest {
         final byte[] frame = new byte[32];
         plantWriteResponse(frame, 0, PDU.FUNC_WRITE, 1, 1, (byte) itemStatus);
         final PDU response = new PDU(frame, PDU_START);
-        response.setupReceivedPDU();
+        response.setupReceivedPDU(frame.length - PDU_START);
         return response;
     }
 
@@ -197,6 +197,7 @@ class S7WriteResponseTest {
         public int exchange(final PDU p1) {
             plantWriteResponse(this.msgIn, this.headerError, this.function, this.itemCount, this.dataLength,
                     this.itemStatus);
+            this.answLen = PARAM_START + 2 + Math.max(1, this.dataLength);
             return Nodave.RESULT_OK;
         }
 

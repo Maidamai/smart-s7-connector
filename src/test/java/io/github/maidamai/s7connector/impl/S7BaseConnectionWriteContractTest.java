@@ -145,6 +145,7 @@ class S7BaseConnectionWriteContractTest {
             frame[12] = PDU.FUNC_WRITE;
             frame[13] = 1;
             frame[14] = itemStatus;
+            this.answLen = 15;
             return Nodave.RESULT_OK;
         }
     }
