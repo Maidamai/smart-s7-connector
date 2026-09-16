@@ -27,6 +27,13 @@ public enum S7Type {
 
     /**
      * A DINT-type (same as DWORD-type)
+     *
+     * <p>Current behavior contract: the 32 raw bits are interpreted through
+     * {@link io.github.maidamai.s7connector.impl.serializer.converter.LongConverter}
+     * as a <b>signed</b> value that is sign-extended to a Java long. For
+     * example 0xFFFFFFFF reads as {@code -1L} and 0x80000000 reads as
+     * {@code -2147483648L}. This mirrors the historical behavior and is kept
+     * for compatibility.</p>
      */
     DINT(LongConverter.class, 4, 0),
 
@@ -36,6 +43,13 @@ public enum S7Type {
     WORD(IntegerConverter.class, 2, 0),
     /**
      * Double word
+     *
+     * <p>Current behavior contract: like {@link #DINT}, the 32 raw bits are
+     * interpreted through {@link io.github.maidamai.s7connector.impl.serializer.converter.LongConverter}
+     * as a <b>signed</b> value that is sign-extended to a Java long, even for
+     * DWORD where an unsigned interpretation might be expected: 0xFFFFFFFF
+     * reads as {@code -1L}. This mirrors the historical behavior and is kept
+     * for compatibility.</p>
      */
     DWORD(LongConverter.class, 4, 0),
 
