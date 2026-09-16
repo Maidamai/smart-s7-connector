@@ -38,7 +38,7 @@ public abstract class S7Connection {
     private static final Logger log = LoggerFactory.getLogger(S7Connection.class);
 
     static int tmo_normal = 150;
-    int answLen; // length of last message
+    protected int answLen; // length of last message
     /**
      * position in result data, incremented when variables are extracted without
      * position
@@ -46,7 +46,7 @@ public abstract class S7Connection {
     int dataPointer;
     PLCinterface iface; // pointer to used interface
     public int maxPDUlength;
-    public byte messageNumber = 0;
+    public int messageNumber = 0;
     public byte[] msgIn;
     public byte[] msgOut;
 
@@ -99,7 +99,7 @@ public abstract class S7Connection {
             errorState = this.exchange(p);
 
             p2 = new PDU(this.msgIn, this.PDUstartIn);
-            p2.setupReceivedPDU();
+            p2.setupReceivedPDU(this.answLen - this.PDUstartIn);
             /*
              * if (p2.udlen == 0) { dataPointer = 0; answLen = 0; return
              * Nodave.RESULT_CPU_RETURNED_NO_DATA; }
@@ -110,6 +110,11 @@ public abstract class S7Connection {
                 rs.results = new Result[numResults];
                 int pos = p2.data;
                 for (int i = 0; i < numResults; i++) {
+                    if (pos + 4 > p2.data + p2.dlen) {
+                        // announced item count exceeds the received frame
+                        errorState = Nodave.RESULT_SHORT_PACKET;
+                        break;
+                    }
                     final Result r = new Result();
                     r.error = Nodave.USByte(p2.mem, pos);
                     if (r.error == 255) {
@@ -294,7 +299,7 @@ public abstract class S7Connection {
             return res;
         }
         final PDU p2 = new PDU(this.msgIn, this.PDUstartIn);
-        res = p2.setupReceivedPDU();
+        res = p2.setupReceivedPDU(this.answLen - this.PDUstartIn);
         if (res != 0) {
             return res;
         }
@@ -321,7 +326,7 @@ public abstract class S7Connection {
                 return res;
             }
             final PDU p2 = new PDU(this.msgIn, this.PDUstartIn);
-            res = p2.setupReceivedPDU();
+            res = p2.setupReceivedPDU(this.answLen - this.PDUstartIn);
             if (res != Nodave.RESULT_OK) {
                 return res;
             }
@@ -332,6 +337,11 @@ public abstract class S7Connection {
             }
             if (p2.udlen == 0) {
                 return Nodave.RESULT_CPU_RETURNED_NO_DATA;
+            }
+            if (p2.udlen != len) {
+                // short or oversized answer for the requested range: the
+                // buffer would be partially filled with stale bytes
+                return Nodave.RESULT_SHORT_PACKET;
             }
             /*
              * copy to user buffer and setup internal buffer pointers:
@@ -390,14 +400,9 @@ public abstract class S7Connection {
 
             if (errorState == Nodave.RESULT_OK) {
                 final PDU p2 = new PDU(this.msgIn, this.PDUstartIn);
-                p2.setupReceivedPDU();
-
-                if (p2.mem[p2.param + 0] == PDU.FUNC_WRITE) {
-                    if (p2.mem[p2.data + 0] == (byte) 0xFF) {
-                        return Nodave.RESULT_OK;
-                    }
-                } else {
-                    errorState |= 4096;
+                errorState = p2.setupReceivedPDU(this.answLen - this.PDUstartIn);
+                if (errorState == Nodave.RESULT_OK) {
+                    errorState = p2.testWriteResult();
                 }
             }
             return errorState;

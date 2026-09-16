@@ -33,7 +33,7 @@ smart-s7-connector 保留了上游 s7connector 的核心 API 和注解序列化�
 
 批量读取的收益来自“减少 PLC 网络请求次数”，不是改变单个点位的解析规则。例如在本地测试中，1000 个连续 BYTE 点位会按动态读取窗口合并为少量读取请求；当窗口为 96 字节时会拆成 11 次读取，而不是 1000 次逐点读取。
 
-在项目 PLC 环境实测中，单次读取延迟可控制在 40ms 内，批量读取路径的端到端延迟进入百毫秒级，并低于上游逐点读取方式。真实吞吐会受 PLC 型号、网络环境、PDU 长度和点位分布影响，建议以实际现场点表压测结果为准。
+仓库历史材料中出现过“单次读取 40ms 内、批量读取百毫秒级”等性能数字，这些属于**维护者历史自述，未在仓库中复现**（无环境、点表与原始数据），不应作为本库性能依据。当前自动化测试只在本地 loopback 上断言“吞吐大于 0、分位数有序、批量读取的请求合并次数”，不是生产基准，也没有退化阈值。真实吞吐受 PLC 型号、网络环境、PDU 长度和点位分布影响；未来如补充正式性能报告，要素要求见 [docs/performance.md](docs/performance.md)。
 
 ## 环境要求
 
@@ -66,13 +66,17 @@ mvn install
 <dependency>
     <groupId>io.github.maidamai</groupId>
     <artifactId>smart-s7-connector</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-SNAPSHOT</version>
 </dependency>
 ```
 
+（当前为源码本地安装版本，尚未发布到 Maven Central；正式发布前版本号为 1.0.0-SNAPSHOT）
+
 ## 快速开始
 
-### 原始字节读写
+完整契约（线程模型、错误类别、读写窗口、响应校验规则）见 [docs/api-contract.md](docs/api-contract.md)。
+
+### 原始字节读取（只读示例）
 
 ```java
 import io.github.maidamai.s7connector.api.DaveArea;
@@ -82,7 +86,7 @@ import io.github.maidamai.s7connector.api.factory.S7ConnectorFactory;
 
 import java.io.IOException;
 
-public final class RawReadWriteExample {
+public final class RawReadExample {
     public static void main(final String[] args) throws IOException {
         try (S7Connector connector = S7ConnectorFactory.buildTCPConnector(SiemensPLCS.S1500)
                 .withHost("192.168.0.10")
@@ -93,8 +97,7 @@ public final class RawReadWriteExample {
                 .build()) {
 
             final byte[] dbBytes = connector.read(DaveArea.DB, 1, 10, 0);
-            dbBytes[0] = 0x01;
-            connector.write(DaveArea.DB, 1, 0, dbBytes);
+            System.out.println("DB1 bytes 0..9: " + java.util.Arrays.toString(dbBytes));
         }
     }
 }
@@ -109,7 +112,7 @@ public final class RawReadWriteExample {
 | `bytes` | 读取字节数 |
 | `offset` | 起始字节偏移 |
 
-`write(area, areaNumber, offset, buffer)` 会从指定偏移写入完整 `buffer`。
+`write(area, areaNumber, offset, buffer)` 会从指定偏移整块写入完整 `buffer`（整块覆盖语义，见下文“写入的风险与限制”）。
 
 ### 对象序列化
 
@@ -128,10 +131,10 @@ import java.io.IOException;
 @Datablock
 public final class MotorState {
     @S7Variable(type = S7Type.BOOL, byteOffset = 0, bitOffset = 0)
-    private Boolean running;
+    public Boolean running;
 
     @S7Variable(type = S7Type.INT, byteOffset = 2)
-    private Short speed;
+    public Short speed;
 
     public Boolean getRunning() {
         return this.running;
@@ -159,6 +162,8 @@ public final class BeanReadExample {
     }
 }
 ```
+
+注意：映射字段必须为 public；private 字段不参与映射。
 
 ### 批量点位读取
 
@@ -192,11 +197,26 @@ public final class BatchPointReadExample {
                     new PlcS7PointVariable(1, 2, 0, 2, DaveArea.DB, S7Type.INT, Short.class),
                     new PlcS7PointVariable(1, 4, 0, 4, DaveArea.DB, S7Type.DINT, Long.class));
 
-            final List<?> values = (List<?>) serializer.dispense(points);
+            final List<?> values = serializer.dispensePoints(points);
             System.out.println(values);
         }
     }
 }
+```
+
+## 写入的风险与限制
+
+写入会直接改变 PLC 内存，请先阅读 [docs/api-contract.md](docs/api-contract.md) 中的写语义：
+
+- `connector.write(...)` 与 `serializer.store(bean, db, offset)` 是**整块覆盖**：未映射字段、空洞、同字节内其他 bit 都会被写为零。若只想改单个点位，请使用下文的“先读后写/单通道写入”方式。
+- 写失败**无回滚**：PLC 拒绝某一片写入时抛出 `S7Exception`，消息中的 `confirmedWrittenBytes` 表示 PLC 已确认写入的字节数，此前各片保持已写状态。
+- 任何传输层失败（`IOException`）或协议违规都会使连接进入终态，需要新建连接重试。
+
+```java
+// 整块覆盖示例：先读出 DB 块，修改后再整块写回，避免盲写未知字节
+final byte[] dbBytes = connector.read(DaveArea.DB, 1, 10, 0); // 先读
+dbBytes[0] = 0x01;                                            // 只改需要的字节
+connector.write(DaveArea.DB, 1, 0, dbBytes);                  // 整块写回，覆盖 0..9 共 10 字节
 ```
 
 ### 单通道写入与多通道读取
@@ -237,7 +257,7 @@ public final class WriteThenBatchReadExample {
                     new PlcS7PointVariable(1, 2, 0, 2, DaveArea.DB, S7Type.INT, Short.class),
                     new PlcS7PointVariable(1, 4, 0, 4, DaveArea.DB, S7Type.REAL, Float.class));
 
-            final List<?> values = (List<?>) serializer.dispense(statusPoints);
+            final List<?> values = serializer.dispensePoints(statusPoints);
             System.out.println(values);
         }
     }
@@ -250,13 +270,19 @@ public final class WriteThenBatchReadExample {
 mvn test
 ```
 
-默认测试使用本地 loopback 或内存对象验证协议编解码、PDU 窗口拆分、批量读取规划和序列化行为。
+默认测试使用本地 loopback 或内存对象验证协议编解码、PDU 窗口拆分、批量读取规划和序列化行为，不需要 PLC，也不会发起任何写入请求。
 
-如需连接真实 PLC 运行集成验证，可以通过系统属性传入连接参数：
+如需连接真实/仿真 PLC，实机集成测试（`*IT`）通过 opt-in profile 显式启用：
 
 ```bash
-mvn test -Dplc.host=192.168.0.10 -Dplc.port=102 -Dplc.rack=0 -Dplc.slot=2
+# 只读验证：仅需 plc.host
+mvn -Pplc-live-it verify -Dplc.host=192.168.0.10 -Dplc.port=102 -Dplc.rack=0 -Dplc.slot=2
+
+# 写入验证：还必须显式授权并声明允许写入的字节范围白名单
+mvn -Pplc-live-it verify -Dplc.host=192.168.0.10 -Dplc.allowWrites=true -Dplc.allow.ranges=DB1:0-63
 ```
+
+安全规则：`plc.host` 本身不构成写授权；写测试在建立连接之前校验 `plc.allowWrites=true` 与范围白名单（如 `DB1:0-63,M:0-1023`），范围不覆盖即拒绝执行。详见 [docs/testing.md](docs/testing.md)。
 
 ## 项目结构
 
@@ -277,11 +303,15 @@ mvn test -Dplc.host=192.168.0.10 -Dplc.port=102 -Dplc.rack=0 -Dplc.slot=2
     └── test/java/io/github/maidamai/s7connector
 ```
 
-## 许可证与来源
+## 许可证与来源（待结案）
 
-smart-s7-connector 使用 Apache License 2.0 开源。
+仓库根 `LICENSE` 与 pom 声明为 Apache License 2.0；但 `src/main/java/io/github/maidamai/s7connector/impl/nodave/` 下 7 个文件保留 libnodave 的 LGPL-2.0-or-later 头部（源自上游 s7connector 的继承，非本项目引入）。**最终授权范围待维护者确认**，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 与 [docs/provenance.md](docs/provenance.md)。在授权范围确认之前，本项目不发布正式制品（no Maven Central / release artifacts）。
 
-本项目基于 [s7connector](https://github.com/s7connector/s7connector) 演进。s7connector 使用 Apache License 2.0，并声明其基于 libnodave。仓库中保留了 `NOTICE` 和 `LICENSE_LIBNODAVE.txt`，用于说明上游来源和相关声明。
+本项目基于 [s7connector](https://github.com/s7connector/s7connector) 演进；仓库中保留 `NOTICE` 和 `LICENSE_LIBNODAVE.txt` 用于上游来源说明。
+
+## 贡献
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。涉及行为的改动请同步更新 [docs/api-contract.md](docs/api-contract.md) 与 [docs/migration.md](docs/migration.md)。
 
 ## 免责声明
 

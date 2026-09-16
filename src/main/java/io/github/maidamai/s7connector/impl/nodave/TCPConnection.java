@@ -103,29 +103,73 @@ public final class TCPConnection extends S7Connection {
 
     /**
      * {@inheritDoc}
+     *
+     * Every request gets a sequence number that the PLC must echo. Frames
+     * that cannot be attributed to the current request (mismatched PDU
+     * number, non-DT COTP header, protocol violations, truncated PDUs)
+     * poison the stream, so the transport is closed and the error code is
+     * returned; a proper PLC error answer (type 2/3 header error) does not
+     * close the connection.
      */
     @Override
     public int exchange(final PDU p1) throws IOException {
+        this.messageNumber++;
+        if (this.messageNumber > 0xFFFF) {
+            this.messageNumber = 1;
+        }
+        p1.setNumber(this.messageNumber);
         this.msgOut[4] = (byte) 0x02;
         this.msgOut[5] = (byte) 0xf0;
         this.msgOut[6] = (byte) 0x80;
         this.sendISOPacket(3 + p1.hlen + p1.plen + p1.dlen);
         this.readISOPacket();
-        return 0;
+        if (this.answLen < this.PDUstartIn + 10) {
+            this.closeTransportAfterInvalidResponse();
+            return Nodave.RESULT_SHORT_PACKET;
+        }
+        if (this.msgIn[4] != 0x02 || this.msgIn[5] != (byte) 0xF0) {
+            this.closeTransportAfterInvalidResponse();
+            return Nodave.RESULT_CANNOT_EVALUATE_PDU;
+        }
+        final PDU p2 = new PDU(this.msgIn, this.PDUstartIn);
+        final int res = p2.setupReceivedPDU(this.answLen - this.PDUstartIn);
+        if (res == Nodave.RESULT_SHORT_PACKET || res == Nodave.RESULT_CANNOT_EVALUATE_PDU) {
+            this.closeTransportAfterInvalidResponse();
+            return res;
+        }
+        if (p2.getNumber() != this.messageNumber) {
+            this.closeTransportAfterInvalidResponse();
+            return Nodave.RESULT_UNEXPECTED_REFERENCE;
+        }
+        return res;
+    }
+
+    private void closeTransportAfterInvalidResponse() {
+        if (this.transport == null) {
+            return;
+        }
+        try {
+            this.transport.close();
+        } catch (final IOException closeFailure) {
+            // the stream is already untrustworthy; the parse error is the
+            // relevant failure, closing failures are not surfaced here
+        }
     }
 
     /**
      * Read iso packet.
      *
-     * @return the int
+     * @return the number of bytes actually received
      */
     protected int readISOPacket() {
         if (this.lastIsoResponse == null || this.lastIsoResponse.length == 0) {
+            this.answLen = 0;
             return 0;
         }
         System.arraycopy(this.lastIsoResponse, 0, this.msgIn, 0, this.lastIsoResponse.length);
         final int responseLength = this.lastIsoResponse.length;
         this.lastIsoResponse = null;
+        this.answLen = responseLength;
         return responseLength;
     }
 

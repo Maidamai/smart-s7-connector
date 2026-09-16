@@ -33,7 +33,7 @@ smart-s7-connector keeps the core API and annotation-based serialization model f
 
 Batch-read performance comes from reducing PLC network round trips, not from changing how each point is decoded. For example, in local tests, 1000 continuous BYTE points are merged into fewer reads by the dynamic read window. With a 96-byte window, they are split into 11 reads instead of 1000 point-by-point reads.
 
-In the project PLC environment, single-read latency can be kept within 40 ms, and batched reads complete at the hundred-millisecond level with lower latency than the original point-by-point read path. Actual throughput depends on the PLC model, network conditions, negotiated PDU length, and point distribution. Benchmark with your own tag list before using the numbers as operational targets.
+Earlier project materials mentioned performance figures such as "single reads within 40 ms" and "batched reads at the hundred-millisecond level". These are **maintainer historical self-reports and have not been reproduced** in this repository (no environment, tag list, or raw data); do not cite them as verified performance. The current automated tests only assert, on a local loopback, that throughput is positive, percentiles are ordered, and batch reads merge into the expected request count — this is not a production benchmark and has no regression thresholds. Actual throughput depends on the PLC model, network conditions, negotiated PDU length, and tag distribution; see [docs/performance.md](docs/performance.md) for the requirements a future formal benchmark report must meet.
 
 ## Requirements
 
@@ -68,13 +68,17 @@ Then add the dependency to your application:
 <dependency>
     <groupId>io.github.maidamai</groupId>
     <artifactId>smart-s7-connector</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-SNAPSHOT</version>
 </dependency>
 ```
 
+(Currently installed from source; not yet published to Maven Central. The version is 1.0.0-SNAPSHOT until the first official release)
+
 ## Quick Start
 
-### Raw Byte Read/Write
+For the full contract (thread model, error categories, read/write windows, response validation rules) see [docs/api-contract.md](docs/api-contract.md).
+
+### Raw Byte Read (read-only example)
 
 ```java
 import io.github.maidamai.s7connector.api.DaveArea;
@@ -84,7 +88,7 @@ import io.github.maidamai.s7connector.api.factory.S7ConnectorFactory;
 
 import java.io.IOException;
 
-public final class RawReadWriteExample {
+public final class RawReadExample {
     public static void main(final String[] args) throws IOException {
         try (S7Connector connector = S7ConnectorFactory.buildTCPConnector(SiemensPLCS.S1500)
                 .withHost("192.168.0.10")
@@ -95,8 +99,7 @@ public final class RawReadWriteExample {
                 .build()) {
 
             final byte[] dbBytes = connector.read(DaveArea.DB, 1, 10, 0);
-            dbBytes[0] = 0x01;
-            connector.write(DaveArea.DB, 1, 0, dbBytes);
+            System.out.println("DB1 bytes 0..9: " + java.util.Arrays.toString(dbBytes));
         }
     }
 }
@@ -111,7 +114,7 @@ public final class RawReadWriteExample {
 | `bytes` | Number of bytes to read |
 | `offset` | Start byte offset |
 
-`write(area, areaNumber, offset, buffer)` writes the full `buffer` from the specified offset.
+`write(area, areaNumber, offset, buffer)` writes the full `buffer` from the specified offset with full-block overwrite semantics (see "Writing: Risks and Limitations" below).
 
 ### Object Serialization
 
@@ -130,10 +133,10 @@ import java.io.IOException;
 @Datablock
 public final class MotorState {
     @S7Variable(type = S7Type.BOOL, byteOffset = 0, bitOffset = 0)
-    private Boolean running;
+    public Boolean running;
 
     @S7Variable(type = S7Type.INT, byteOffset = 2)
-    private Short speed;
+    public Short speed;
 
     public Boolean getRunning() {
         return this.running;
@@ -161,6 +164,8 @@ public final class BeanReadExample {
     }
 }
 ```
+
+Note: mapped fields must be public; private fields do not participate in the mapping.
 
 ### Batch Point Reads
 
@@ -194,11 +199,27 @@ public final class BatchPointReadExample {
                     new PlcS7PointVariable(1, 2, 0, 2, DaveArea.DB, S7Type.INT, Short.class),
                     new PlcS7PointVariable(1, 4, 0, 4, DaveArea.DB, S7Type.DINT, Long.class));
 
-            final List<?> values = (List<?>) serializer.dispense(points);
+            final List<?> values = serializer.dispensePoints(points);
             System.out.println(values);
         }
     }
 }
+```
+
+## Writing: Risks and Limitations
+
+Writes change PLC memory directly. Read the write semantics in [docs/api-contract.md](docs/api-contract.md) first:
+
+- `connector.write(...)` and `serializer.store(bean, db, offset)` use **full-block overwrite**: unmapped fields, gaps, and other bits in partially used bytes are written as zero. To update a single point, use the read-modify-write / single-channel pattern below.
+- Write failures are **not rolled back**: when the PLC rejects a chunk, an `S7Exception` is thrown whose message includes `confirmedWrittenBytes` — the byte count the PLC already acknowledged; earlier chunks stay written.
+- Any transport failure (`IOException`) or protocol violation puts the connection into a terminal state; build a new connector to retry.
+
+```java
+// Full-block overwrite example: read the DB block first, then write it back
+// so unknown bytes are not blindly overwritten
+final byte[] dbBytes = connector.read(DaveArea.DB, 1, 10, 0); // read first
+dbBytes[0] = 0x01;                                            // modify only what you need
+connector.write(DaveArea.DB, 1, 0, dbBytes);                  // write back all 10 bytes (0..9)
 ```
 
 ### Single-Channel Write and Multi-Channel Read
@@ -239,7 +260,7 @@ public final class WriteThenBatchReadExample {
                     new PlcS7PointVariable(1, 2, 0, 2, DaveArea.DB, S7Type.INT, Short.class),
                     new PlcS7PointVariable(1, 4, 0, 4, DaveArea.DB, S7Type.REAL, Float.class));
 
-            final List<?> values = (List<?>) serializer.dispense(statusPoints);
+            final List<?> values = serializer.dispensePoints(statusPoints);
             System.out.println(values);
         }
     }
@@ -252,13 +273,19 @@ public final class WriteThenBatchReadExample {
 mvn test
 ```
 
-The default tests use local loopback servers or in-memory connectors to verify protocol encoding/decoding, PDU-window splitting, batch-read planning, and serialization behavior.
+The default tests use local loopback servers or in-memory connectors to verify protocol encoding/decoding, PDU-window splitting, batch-read planning, and serialization behavior. They need no PLC and never issue a write request.
 
-To run integration checks against a real PLC, pass the connection parameters as system properties:
+Live integration tests (`*IT`) run through an explicit opt-in profile:
 
 ```bash
-mvn test -Dplc.host=192.168.0.10 -Dplc.port=102 -Dplc.rack=0 -Dplc.slot=2
+# Read-only verification: only needs plc.host
+mvn -Pplc-live-it verify -Dplc.host=192.168.0.10 -Dplc.port=102 -Dplc.rack=0 -Dplc.slot=2
+
+# Write verification: additionally requires explicit authorization and a byte-range whitelist
+mvn -Pplc-live-it verify -Dplc.host=192.168.0.10 -Dplc.allowWrites=true -Dplc.allow.ranges=DB1:0-63
 ```
+
+Safety rules: `plc.host` alone never authorizes writes. Write tests validate `plc.allowWrites=true` and the range whitelist (e.g. `DB1:0-63,M:0-1023`) before opening a connection, and refuse to run when the whitelist does not cover every written range. See [docs/testing.md](docs/testing.md).
 
 ## Project Layout
 
@@ -279,11 +306,15 @@ mvn test -Dplc.host=192.168.0.10 -Dplc.port=102 -Dplc.rack=0 -Dplc.slot=2
     └── test/java/io/github/maidamai/s7connector
 ```
 
-## License and Attribution
+## License and Attribution (unresolved)
 
-smart-s7-connector is licensed under the Apache License 2.0.
+The repository root `LICENSE` and the pom declare Apache License 2.0; however, 7 files under `src/main/java/io/github/maidamai/s7connector/impl/nodave/` retain libnodave's LGPL-2.0-or-later headers (inherited from upstream s7connector, not introduced by this project). **The final licensing scope is pending maintainer confirmation** — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [docs/provenance.md](docs/provenance.md). Until the scope is confirmed, this project does not publish official artifacts (no Maven Central / release artifacts).
 
-This project is based on [s7connector](https://github.com/s7connector/s7connector). s7connector is licensed under the Apache License 2.0 and states that it is based on libnodave. `NOTICE` and `LICENSE_LIBNODAVE.txt` are kept in this repository for upstream attribution.
+This project is based on [s7connector](https://github.com/s7connector/s7connector); `NOTICE` and `LICENSE_LIBNODAVE.txt` are kept for upstream attribution.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Behavior changes should update [docs/api-contract.md](docs/api-contract.md) and [docs/migration.md](docs/migration.md) in the same change.
 
 ## Disclaimer
 

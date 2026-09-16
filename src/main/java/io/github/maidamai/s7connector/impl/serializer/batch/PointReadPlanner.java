@@ -65,6 +65,11 @@ public final class PointReadPlanner {
         if (point.getBitOffset() < 0 || point.getBitOffset() > 7) {
             throw new IllegalArgumentException("bitOffset must be between 0 and 7 at index " + index + ": " + point.getBitOffset());
         }
+        if (point.getType() != S7Type.BOOL && point.getSize() <= 0) {
+            throw new IllegalArgumentException("size must be positive for non-BOOL types at index " + index
+                    + ": size=" + point.getSize() + ", type=" + point.getType()
+                    + ", byteOffset=" + point.getByteOffset() + ", dbNum=" + point.getDbNum());
+        }
         final int coverageLength = coverageLength(point);
         if (coverageLength <= 0) {
             throw new IllegalArgumentException("coverage length must be positive at index " + index + ": " + coverageLength);
@@ -83,7 +88,9 @@ public final class PointReadPlanner {
         if (point.getType() == S7Type.BOOL) {
             return 1;
         }
-        return Math.max(1, point.getSize());
+        // size is validated to be positive for non-BOOL types up front;
+        // masking it here would silently plan reads of the wrong length
+        return point.getSize();
     }
 
     private static final class IndexedPoint {

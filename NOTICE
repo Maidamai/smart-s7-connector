@@ -9,3 +9,18 @@ s7connector is licensed under the Apache License, Version 2.0.
 s7connector includes code and protocol ideas derived from libnodave.
 The libnodave attribution notice retained by s7connector is included in
 LICENSE_LIBNODAVE.txt.
+
+---
+
+# Appended 2026-09-16 (T09 provenance audit)
+
+This product includes code derived from libnodave
+(Copyright Thomas Hergenhahn, 2005), licensed under the
+GNU Library General Public License, version 2.0 or later.
+See LICENSES/LGPL-2.0.txt for the full license text and
+THIRD_PARTY_NOTICES.md for per-file provenance.
+
+This product includes code from s7connector
+(https://github.com/s7connector/s7connector), licensed under the
+Apache License, Version 2.0. See THIRD_PARTY_NOTICES.md and
+docs/provenance.md for details.

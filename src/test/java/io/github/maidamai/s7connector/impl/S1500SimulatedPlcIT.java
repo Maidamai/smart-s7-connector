@@ -8,7 +8,7 @@ import io.github.maidamai.s7connector.api.SiemensPLCS;
 import io.github.maidamai.s7connector.api.factory.S7ConnectorFactory;
 import io.github.maidamai.s7connector.api.factory.S7SerializerFactory;
 import io.github.maidamai.s7connector.bean.PlcS7PointVariable;
-import org.junit.jupiter.api.Assumptions;
+import io.github.maidamai.s7connector.impl.support.LivePlcTestGuard;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -18,12 +18,13 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Live tests against a real or simulated S7-1500. Not selected by plain
+ * {@code mvn test}; run via the {@code plc-live-it} profile (see docs/testing.md).
+ * The write test refuses to send any write request unless
+ * {@code plc.allowWrites=true} and {@code plc.allow.ranges} cover DB1 0-7.
+ */
 class S1500SimulatedPlcIT {
-    private static final String HOST_PROPERTY = "plc.host";
-    private static final int RACK = 0;
-    private static final int SLOT = 2;
-    private static final int PORT = 102;
-    private static final int TIMEOUT_MILLIS = 3000;
     private static final int DB_NUMBER = 1;
     private static final int DB_START_OFFSET = 0;
     private static final int DB_TEST_BYTES = 8;
@@ -32,17 +33,36 @@ class S1500SimulatedPlcIT {
     private static final long DINT_VALUE = 123456789L;
 
     @Test
-    void readsAndWritesConfiguredDbPointsOnSimulatedS1500() throws IOException {
-        final S7Connector connector = S7ConnectorFactory.buildTCPConnector(SiemensPLCS.S1500)
-                .withHost(host())
-                .withPort(PORT)
-                .withRack(RACK)
-                .withSlot(SLOT)
-                .withTimeout(TIMEOUT_MILLIS)
-                .build();
-        final S7Serializer serializer = S7SerializerFactory.buildSerializer(connector);
-        final byte[] originalBytes = connector.read(DaveArea.DB, DB_NUMBER, DB_TEST_BYTES, DB_START_OFFSET);
+    void readsConfiguredDbPointsFromSimulatedS1500() throws IOException {
+        final LivePlcTestGuard.LiveTarget target = LivePlcTestGuard.fromSystemProperties().requireLiveTarget();
+        final S7Connector connector = buildConnector(target);
         try {
+            final S7Serializer serializer = S7SerializerFactory.buildSerializer(connector);
+
+            final List<?> values = (List<?>) serializer.dispense(Arrays.asList(boolPoint(), intPoint(), dintPoint()));
+            final byte[] rawBytes = connector.read(DaveArea.DB, DB_NUMBER, DB_TEST_BYTES, DB_START_OFFSET);
+
+            assertEquals(Boolean.valueOf((rawBytes[0] & 0x01) != 0), values.get(0),
+                    "DB1.0.0 BOOL should match the raw DB byte");
+            assertEquals(Short.valueOf(readInt(rawBytes, 2)), values.get(1),
+                    "DB1.DBW2 INT should match the raw bytes");
+            assertEquals(Long.valueOf(readDint(rawBytes, 4)), values.get(2),
+                    "DB1.DBD4 DINT should match the raw bytes");
+        } finally {
+            connector.close();
+        }
+    }
+
+    @Test
+    void writesAndReadsBackConfiguredDbPointsOnSimulatedS1500() throws IOException {
+        final LivePlcTestGuard guard = LivePlcTestGuard.fromSystemProperties();
+        guard.requireWriteRange(DaveArea.DB, DB_NUMBER, DB_START_OFFSET, DB_TEST_BYTES);
+        final S7Connector connector = buildConnector(guard.requireLiveTarget());
+        byte[] originalBytes = null;
+        try {
+            final S7Serializer serializer = S7SerializerFactory.buildSerializer(connector);
+            originalBytes = connector.read(DaveArea.DB, DB_NUMBER, DB_TEST_BYTES, DB_START_OFFSET);
+
             serializer.store(Boolean.valueOf(BOOL_VALUE), boolPoint());
             serializer.store(Short.valueOf(INT_VALUE), intPoint());
             serializer.store(Long.valueOf(DINT_VALUE), dintPoint());
@@ -58,11 +78,23 @@ class S1500SimulatedPlcIT {
             assertEquals(DINT_VALUE, readDint(rawBytes, 4), "raw bytes at DB1.DBD4 should contain the written DINT");
         } finally {
             try {
-                connector.write(DaveArea.DB, DB_NUMBER, DB_START_OFFSET, originalBytes);
+                if (originalBytes != null) {
+                    connector.write(DaveArea.DB, DB_NUMBER, DB_START_OFFSET, originalBytes);
+                }
             } finally {
                 connector.close();
             }
         }
+    }
+
+    private static S7Connector buildConnector(final LivePlcTestGuard.LiveTarget target) {
+        return S7ConnectorFactory.buildTCPConnector(SiemensPLCS.S1500)
+                .withHost(target.getHost())
+                .withPort(target.getPort())
+                .withRack(target.getRack())
+                .withSlot(target.getSlot())
+                .withTimeout(target.getTimeoutMillis())
+                .build();
     }
 
     private static PlcS7PointVariable boolPoint() {
@@ -86,12 +118,5 @@ class S1500SimulatedPlcIT {
                 | ((long) (bytes[offset + 1] & 0xFF) << 16)
                 | ((long) (bytes[offset + 2] & 0xFF) << 8)
                 | (long) (bytes[offset + 3] & 0xFF);
-    }
-
-    private static String host() {
-        final String host = System.getProperty(HOST_PROPERTY);
-        Assumptions.assumeTrue(host != null && !host.trim().isEmpty(),
-                "set -D" + HOST_PROPERTY + " to run live PLC integration tests");
-        return host;
     }
 }
