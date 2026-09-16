@@ -66,9 +66,11 @@ mvn install
 <dependency>
     <groupId>io.github.maidamai</groupId>
     <artifactId>smart-s7-connector</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-SNAPSHOT</version>
 </dependency>
 ```
+
+（当前为源码本地安装版本，尚未发布到 Maven Central；正式发布前版本号为 1.0.0-SNAPSHOT）
 
 ## 快速开始
 

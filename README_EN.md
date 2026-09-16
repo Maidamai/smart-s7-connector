@@ -68,9 +68,11 @@ Then add the dependency to your application:
 <dependency>
     <groupId>io.github.maidamai</groupId>
     <artifactId>smart-s7-connector</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-SNAPSHOT</version>
 </dependency>
 ```
+
+(Currently installed from source; not yet published to Maven Central. The version is 1.0.0-SNAPSHOT until the first official release)
 
 ## Quick Start
 

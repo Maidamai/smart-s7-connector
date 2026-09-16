@@ -8,9 +8,13 @@
     <artifactId>smart-s7-connector</artifactId>
     <groupId>io.github.maidamai</groupId>
     <packaging>jar</packaging>
-    <version>1.0.0</version>
+    <!-- 1.0.0-SNAPSHOT: no artifact has ever been published; the first
+         official release must be cut as 1.0.0 only after the license
+         provenance decision (docs/provenance.md) is closed. -->
+    <version>1.0.0-SNAPSHOT</version>
     <name>smart-s7-connector</name>
     <description>Lightweight Siemens S7 PLC communication library for Java.</description>
+    <url>https://github.com/Maidamai/smart-s7-connector</url>
 
     <licenses>
         <license>
@@ -19,6 +23,25 @@
             <distribution>repo</distribution>
         </license>
     </licenses>
+
+    <developers>
+        <developer>
+            <id>Maidamai</id>
+            <name>Caijiangtao</name>
+            <url>https://github.com/Maidamai</url>
+        </developer>
+    </developers>
+
+    <scm>
+        <url>https://github.com/Maidamai/smart-s7-connector</url>
+        <connection>scm:git:https://github.com/Maidamai/smart-s7-connector.git</connection>
+        <developerConnection>scm:git:git@github.com:Maidamai/smart-s7-connector.git</developerConnection>
+    </scm>
+
+    <issueManagement>
+        <system>GitHub Issues</system>
+        <url>https://github.com/Maidamai/smart-s7-connector/issues</url>
+    </issueManagement>
 
     <properties>
         <maven.compiler.release>8</maven.compiler.release>
@@ -87,6 +110,60 @@
     </build>
 
     <profiles>
+        <!-- Release artifact generation. Never activated implicitly; the
+             actual upload is a manual, maintainer-only step described in
+             docs/releasing.md and requires credentials that must never
+             enter this repository. -->
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>3.3.1</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>3.11.2</version>
+                        <configuration>
+                            <doclint>none</doclint>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>3.2.7</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <!-- Opt-in runner for the *IT live-PLC tests. Plain `mvn test` never
              selects them, and live writes additionally require
              -Dplc.allowWrites=true -Dplc.allow.ranges=... enforced by
