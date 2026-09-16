@@ -8,6 +8,7 @@ docs/*
 !docs/testing.md
 !docs/provenance.md
 !docs/adoption.md
+!docs/dependency-tree.txt
 ARCHITECTURE.md
 
 .DS_Store
