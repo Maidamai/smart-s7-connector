@@ -6,6 +6,8 @@ target/
 # Local planning, review, and generated engineering notes.
 docs/*
 !docs/testing.md
+!docs/provenance.md
+!docs/adoption.md
 ARCHITECTURE.md
 
 .DS_Store
