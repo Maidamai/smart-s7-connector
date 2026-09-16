@@ -86,9 +86,12 @@ public final class S7SerializerImpl implements S7Serializer {
                 if (entry.isArray) {
                     value = Array.newInstance(entry.type, entry.arraySize);
                     for (int i = 0; i < entry.arraySize; i++) {
+                        // Element position = entry start + element size * index;
+                        // BOOL elements advance bit by bit and cross byte
+                        // boundaries, see BeanEntry#getElementByteOffset.
                         final Object component = entry.serializer.extract(entry.type, buffer,
-                                entry.byteOffset + byteOffset + (i * entry.s7type.getByteSize()),
-                                entry.bitOffset + (i * entry.s7type.getBitSize()));
+                                entry.getElementByteOffset(i) + byteOffset,
+                                entry.getElementBitOffset(i));
                         Array.set(value, i, component);
                     }
                 } else {
@@ -141,9 +144,12 @@ public final class S7SerializerImpl implements S7Serializer {
                             final Object arrayItem = Array.get(fieldValue, i);
 
                             if (arrayItem != null) {
+                                // Element position = entry start + element size * index;
+                                // BOOL elements advance bit by bit and cross byte
+                                // boundaries, see BeanEntry#getElementByteOffset.
                                 entry.serializer.insert(arrayItem, buffer,
-                                        entry.byteOffset + byteOffset + (i * entry.s7type.getByteSize()),
-                                        entry.bitOffset + (i * entry.s7type.getBitSize()), entry.size);
+                                        entry.getElementByteOffset(i) + byteOffset,
+                                        entry.getElementBitOffset(i), entry.size);
                             }
                         }
                     } else {
