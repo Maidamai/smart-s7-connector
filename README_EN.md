@@ -130,10 +130,10 @@ import java.io.IOException;
 @Datablock
 public final class MotorState {
     @S7Variable(type = S7Type.BOOL, byteOffset = 0, bitOffset = 0)
-    private Boolean running;
+    public Boolean running;
 
     @S7Variable(type = S7Type.INT, byteOffset = 2)
-    private Short speed;
+    public Short speed;
 
     public Boolean getRunning() {
         return this.running;
@@ -161,6 +161,8 @@ public final class BeanReadExample {
     }
 }
 ```
+
+Note: mapped fields must be public; private fields do not participate in the mapping.
 
 ### Batch Point Reads
 

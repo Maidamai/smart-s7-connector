@@ -128,10 +128,10 @@ import java.io.IOException;
 @Datablock
 public final class MotorState {
     @S7Variable(type = S7Type.BOOL, byteOffset = 0, bitOffset = 0)
-    private Boolean running;
+    public Boolean running;
 
     @S7Variable(type = S7Type.INT, byteOffset = 2)
-    private Short speed;
+    public Short speed;
 
     public Boolean getRunning() {
         return this.running;
@@ -159,6 +159,8 @@ public final class BeanReadExample {
     }
 }
 ```
+
+注意：映射字段必须为 public；private 字段不参与映射。
 
 ### 批量点位读取
 
