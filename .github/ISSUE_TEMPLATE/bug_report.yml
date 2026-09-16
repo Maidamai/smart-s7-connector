@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a defect in smart-s7-connector. Please read the sensitive-information warning first.
+title: "[bug] "
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Sensitive information warning (read before writing anything)
+
+        This is an industrial-control (PLC) communication library. **Do not
+        paste any of the following anywhere in this issue:**
+
+        - Real plant tag tables / point lists (点表).
+        - Intranet addresses, network topology, or production PLC hostnames/IPs.
+          Mask hosts (e.g. `192.168.x.x` or `10.x.x.x`) instead.
+        - Credentials, usernames, passwords, or keys of any kind.
+        - Process parameters or anything describing what your line/plant
+          actually controls.
+
+        Use placeholder hosts and invented tag addresses in reproductions.
+        Issues containing such information may be edited or closed.
+        Vulnerabilities must NOT be reported here — see [SECURITY.md](../SECURITY.md).
+
+  - type: input
+    id: version
+    attributes:
+      label: Library version and how it was built
+      description: e.g. "1.0.0 from Maven Central" or "built from source at commit abc1234"
+    validations:
+      required: true
+
+  - type: input
+    id: jdk
+    attributes:
+      label: JDK version
+      description: e.g. "OpenJDK 8u402" or "Temurin 17.0.10"
+    validations:
+      required: true
+
+  - type: textarea
+    id: plc
+    attributes:
+      label: PLC model and firmware (optional)
+      description: e.g. "S7-1500, firmware V2.9". Leave empty if the problem reproduces without a PLC (loopback only). Do not include serial numbers or site information.
+
+  - type: markdown
+    attributes:
+      value: |
+        ### Connection parameters
+
+        When describing connection settings, **mask/redact the real host**
+        (e.g. `192.168.***.***`) and never include credentials. Rack, slot,
+        port, and DB numbers are usually fine to share.
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Numbered steps that reproduce the problem, starting from a clean checkout or a plain Maven dependency.
+    validations:
+      required: true
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Minimal reproduction code (optional)
+      description: The smallest self-contained snippet that shows the problem. Use placeholder hosts and invented DB/tag addresses only.
+      render: java
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected vs. actual behavior
+      description: What you expected to happen, and what actually happened (including any exception message and type).
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log excerpts (optional)
+      description: Relevant stack traces or log lines. Redact hosts, tag names, and any site-identifying information before pasting.
