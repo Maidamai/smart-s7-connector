@@ -4,7 +4,8 @@ target/
 *.iml
 
 # Local planning, review, and generated engineering notes.
-docs/
+docs/*
+!docs/testing.md
 ARCHITECTURE.md
 
 .DS_Store

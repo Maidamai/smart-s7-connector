@@ -252,13 +252,19 @@ public final class WriteThenBatchReadExample {
 mvn test
 ```
 
-The default tests use local loopback servers or in-memory connectors to verify protocol encoding/decoding, PDU-window splitting, batch-read planning, and serialization behavior.
+The default tests use local loopback servers or in-memory connectors to verify protocol encoding/decoding, PDU-window splitting, batch-read planning, and serialization behavior. They need no PLC and never issue a write request.
 
-To run integration checks against a real PLC, pass the connection parameters as system properties:
+Live integration tests (`*IT`) run through an explicit opt-in profile:
 
 ```bash
-mvn test -Dplc.host=192.168.0.10 -Dplc.port=102 -Dplc.rack=0 -Dplc.slot=2
+# Read-only verification: only needs plc.host
+mvn -Pplc-live-it verify -Dplc.host=192.168.0.10 -Dplc.port=102 -Dplc.rack=0 -Dplc.slot=2
+
+# Write verification: additionally requires explicit authorization and a byte-range whitelist
+mvn -Pplc-live-it verify -Dplc.host=192.168.0.10 -Dplc.allowWrites=true -Dplc.allow.ranges=DB1:0-63
 ```
+
+Safety rules: `plc.host` alone never authorizes writes. Write tests validate `plc.allowWrites=true` and the range whitelist (e.g. `DB1:0-63,M:0-1023`) before opening a connection, and refuse to run when the whitelist does not cover every written range. See [docs/testing.md](docs/testing.md).
 
 ## Project Layout
 

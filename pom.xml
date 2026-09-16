@@ -25,7 +25,20 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.jupiter.version>5.14.2</junit.jupiter.version>
         <maven.surefire.version>3.5.4</maven.surefire.version>
+        <maven.failsafe.version>3.5.4</maven.failsafe.version>
         <maven.compiler.plugin.version>3.15.0</maven.compiler.plugin.version>
+        <!-- Live PLC integration tests are opt-in; empty defaults keep the
+             failsafe property mapping inert unless overridden with -D on the
+             command line. See docs/testing.md. -->
+        <plc.host></plc.host>
+        <plc.port></plc.port>
+        <plc.rack></plc.rack>
+        <plc.slot></plc.slot>
+        <plc.timeoutMillis></plc.timeoutMillis>
+        <plc.allowWrites></plc.allowWrites>
+        <plc.allow.ranges></plc.allow.ranges>
+        <plc.tags.file></plc.tags.file>
+        <plc.scale.cycles></plc.scale.cycles>
     </properties>
 
     <dependencies>
@@ -72,5 +85,48 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Opt-in runner for the *IT live-PLC tests. Plain `mvn test` never
+             selects them, and live writes additionally require
+             -Dplc.allowWrites=true -Dplc.allow.ranges=... enforced by
+             LivePlcTestGuard before any connection is opened. -->
+        <profile>
+            <id>plc-live-it</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>${maven.failsafe.version}</version>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <includes>
+                                <include>**/*IT.java</include>
+                            </includes>
+                            <systemPropertyVariables>
+                                <plc.host>${plc.host}</plc.host>
+                                <plc.port>${plc.port}</plc.port>
+                                <plc.rack>${plc.rack}</plc.rack>
+                                <plc.slot>${plc.slot}</plc.slot>
+                                <plc.timeoutMillis>${plc.timeoutMillis}</plc.timeoutMillis>
+                                <plc.allowWrites>${plc.allowWrites}</plc.allowWrites>
+                                <plc.allow.ranges>${plc.allow.ranges}</plc.allow.ranges>
+                                <plc.tags.file>${plc.tags.file}</plc.tags.file>
+                                <plc.scale.cycles>${plc.scale.cycles}</plc.scale.cycles>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>

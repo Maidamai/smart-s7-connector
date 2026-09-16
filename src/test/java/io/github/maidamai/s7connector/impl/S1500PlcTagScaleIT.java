@@ -9,6 +9,7 @@ import io.github.maidamai.s7connector.api.factory.S7ConnectorFactory;
 import io.github.maidamai.s7connector.api.factory.S7SerializerFactory;
 import io.github.maidamai.s7connector.bean.PlcS7PointVariable;
 import io.github.maidamai.s7connector.exception.S7Exception;
+import io.github.maidamai.s7connector.impl.support.LivePlcTestGuard;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
@@ -40,22 +41,29 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
+/**
+ * Live scale test against a real S7-1500: reads and writes every supported
+ * tag from a tag workbook. Not selected by plain {@code mvn test}; run via the
+ * {@code plc-live-it} profile (see docs/testing.md). It refuses to send any
+ * write request unless {@code plc.allowWrites=true} and
+ * {@code plc.allow.ranges} cover every tag address in the workbook.
+ */
 class S1500PlcTagScaleIT {
     private static final String TAG_FILE_PROPERTY = "plc.tags.file";
-    private static final String HOST_PROPERTY = "plc.host";
-    private static final int DEFAULT_PORT = 102;
-    private static final int DEFAULT_RACK = 0;
-    private static final int DEFAULT_SLOT = 2;
-    private static final int DEFAULT_TIMEOUT_MILLIS = 3000;
     private static final int DEFAULT_CYCLES = 3;
     private static final int SCALE_STEP_SIZE = 100;
 
     @TestFactory
     List<DynamicTest> readsContinuouslyAndWritesAllTagsFromTagWorkbook() throws IOException {
-        Assumptions.assumeTrue(isConfigured(TAG_FILE_PROPERTY) && isConfigured(HOST_PROPERTY),
-                "set -D" + TAG_FILE_PROPERTY + " and -D" + HOST_PROPERTY + " to run live PLC scale tests");
+        Assumptions.assumeTrue(isConfigured(TAG_FILE_PROPERTY),
+                "set -D" + TAG_FILE_PROPERTY + " to run live PLC scale tests");
+        final LivePlcTestGuard guard = LivePlcTestGuard.fromSystemProperties();
+        guard.requireLiveTarget();
         final List<PlcTag> tags = PlcTagWorkbook.load(tagFile()).getSupportedTags();
         assertTrue(!tags.isEmpty(), "tag workbook should contain supported PLC tags");
+        for (final MemoryRange range : mergedMemoryRanges(tags)) {
+            guard.requireWriteRange(range.getArea(), range.getDbNum(), range.getStartOffset(), range.getLength());
+        }
 
         final List<DynamicTest> tests = new ArrayList<>();
         for (final Integer pointCount : pointCounts(tags.size())) {
@@ -66,18 +74,20 @@ class S1500PlcTagScaleIT {
 
     private void runScaleTest(final List<PlcTag> allTags, final int pointCount) throws IOException {
         final List<PlcTag> selectedTags = new ArrayList<>(allTags.subList(0, pointCount));
+        final LivePlcTestGuard.LiveTarget target = LivePlcTestGuard.fromSystemProperties().requireLiveTarget();
 
         final S7Connector connector = S7ConnectorFactory.buildTCPConnector(SiemensPLCS.S1500)
-                .withHost(host())
-                .withPort(port())
-                .withRack(rack())
-                .withSlot(slot())
-                .withTimeout(timeoutMillis())
+                .withHost(target.getHost())
+                .withPort(target.getPort())
+                .withRack(target.getRack())
+                .withSlot(target.getSlot())
+                .withTimeout(target.getTimeoutMillis())
                 .build();
         final S7Serializer serializer = S7SerializerFactory.buildSerializer(connector);
-        final List<MemorySnapshot> originalMemory = readMemorySnapshots(connector, selectedTags);
-        readValues(serializer, selectedTags, "initial read", pointCount);
+        List<MemorySnapshot> originalMemory = null;
         try {
+            originalMemory = readMemorySnapshots(connector, selectedTags);
+            readValues(serializer, selectedTags, "initial read", pointCount);
             for (int cycle = 0; cycle < cycles(); cycle++) {
                 assertEquals(pointCount, readValues(serializer, selectedTags, "pre-write cycle " + cycle, pointCount).size(),
                         "pre-write read should return one value per selected tag");
@@ -93,8 +103,13 @@ class S1500PlcTagScaleIT {
                 readValues(serializer, selectedTags, "post-write cycle " + cycle, pointCount);
             }
         } finally {
-            restoreMemorySnapshots(connector, originalMemory);
-            connector.close();
+            try {
+                if (originalMemory != null) {
+                    restoreMemorySnapshots(connector, originalMemory);
+                }
+            } finally {
+                connector.close();
+            }
         }
     }
 
@@ -207,26 +222,6 @@ class S1500PlcTagScaleIT {
 
     private static Path tagFile() {
         return Paths.get(requiredProperty(TAG_FILE_PROPERTY));
-    }
-
-    private static String host() {
-        return requiredProperty(HOST_PROPERTY);
-    }
-
-    private static int port() {
-        return Integer.parseInt(System.getProperty("plc.port", String.valueOf(DEFAULT_PORT)));
-    }
-
-    private static int rack() {
-        return Integer.parseInt(System.getProperty("plc.rack", String.valueOf(DEFAULT_RACK)));
-    }
-
-    private static int slot() {
-        return Integer.parseInt(System.getProperty("plc.slot", String.valueOf(DEFAULT_SLOT)));
-    }
-
-    private static int timeoutMillis() {
-        return Integer.parseInt(System.getProperty("plc.timeoutMillis", String.valueOf(DEFAULT_TIMEOUT_MILLIS)));
     }
 
     private static int cycles() {

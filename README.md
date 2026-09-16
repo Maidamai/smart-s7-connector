@@ -250,13 +250,19 @@ public final class WriteThenBatchReadExample {
 mvn test
 ```
 
-默认测试使用本地 loopback 或内存对象验证协议编解码、PDU 窗口拆分、批量读取规划和序列化行为。
+默认测试使用本地 loopback 或内存对象验证协议编解码、PDU 窗口拆分、批量读取规划和序列化行为，不需要 PLC，也不会发起任何写入请求。
 
-如需连接真实 PLC 运行集成验证，可以通过系统属性传入连接参数：
+如需连接真实/仿真 PLC，实机集成测试（`*IT`）通过 opt-in profile 显式启用：
 
 ```bash
-mvn test -Dplc.host=192.168.0.10 -Dplc.port=102 -Dplc.rack=0 -Dplc.slot=2
+# 只读验证：仅需 plc.host
+mvn -Pplc-live-it verify -Dplc.host=192.168.0.10 -Dplc.port=102 -Dplc.rack=0 -Dplc.slot=2
+
+# 写入验证：还必须显式授权并声明允许写入的字节范围白名单
+mvn -Pplc-live-it verify -Dplc.host=192.168.0.10 -Dplc.allowWrites=true -Dplc.allow.ranges=DB1:0-63
 ```
+
+安全规则：`plc.host` 本身不构成写授权；写测试在建立连接之前校验 `plc.allowWrites=true` 与范围白名单（如 `DB1:0-63,M:0-1023`），范围不覆盖即拒绝执行。详见 [docs/testing.md](docs/testing.md)。
 
 ## 项目结构
 
