@@ -225,7 +225,11 @@ class S1500PlcTagScaleIT {
     }
 
     private static int cycles() {
-        return Integer.parseInt(System.getProperty("plc.scale.cycles", String.valueOf(DEFAULT_CYCLES)));
+        final String value = System.getProperty("plc.scale.cycles");
+        if (value == null || value.trim().isEmpty()) {
+            return DEFAULT_CYCLES;
+        }
+        return Integer.parseInt(value.trim());
     }
 
     private static boolean isConfigured(final String propertyName) {

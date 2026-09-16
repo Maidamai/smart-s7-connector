@@ -63,6 +63,23 @@ class S7BaseConnectionWriteContractTest {
     }
 
     @Test
+    void writeReportsConfirmedBytesWhenThirdChunkFails() {
+        // negotiated PDU 240 -> chunk size 222; a 500-byte write splits into 222+222+56
+        final ScriptedWriteConnection nodaveConnection = new ScriptedWriteConnection().failWriteNumberWith(3, 0x05);
+        final S7BaseConnection connector = testConnector(nodaveConnection, 240);
+
+        final S7Exception failure = assertThrows(S7Exception.class,
+                () -> connector.write(DaveArea.DB, 1, 0, new byte[500]),
+                "a third-chunk rejection must fail the public write call");
+
+        final String message = failure.getMessage();
+        assertTrue(message.contains("offset=444"), "message should carry the failing chunk offset, but was: " + message);
+        assertTrue(message.contains("length=56"), "message should carry the failing chunk length, but was: " + message);
+        assertTrue(message.contains("confirmedWrittenBytes=444"),
+                "confirmed bytes must accumulate across more than two chunks, but was: " + message);
+    }
+
+    @Test
     void writeSucceedsWhenAllChunksAreAcknowledged() {
         final ScriptedWriteConnection nodaveConnection = new ScriptedWriteConnection();
         final S7BaseConnection connector = testConnector(nodaveConnection, 240);
