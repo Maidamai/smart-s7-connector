@@ -1,4 +1,5 @@
 
+
 package io.github.maidamai.s7connector.impl;
 
 import io.github.maidamai.s7connector.api.DaveArea;
@@ -22,7 +23,31 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
      * The Constant MAX_SIZE.
      */
     public static final int DEFAULT_MAX_READ_BYTES = 96;
+
+    /**
+     * Default write window when no PDU length negotiation is available.
+     */
+    public static final int DEFAULT_MAX_WRITE_BYTES = 96;
+
+    /**
+     * Read responses occupy an S7 PDU of 12-byte header + 2-byte parameter
+     * (function, item count) + 4-byte data head + user data.
+     */
     private static final int PDU_READ_OVERHEAD_BYTES = 18;
+
+    /**
+     * A single-item byte write request occupies an S7 PDU of 10-byte header +
+     * 14-byte parameter (2 request head + 12 item) + 4-byte data head +
+     * payload. The write window is therefore smaller than the read window for
+     * the same negotiated PDU length.
+     */
+    private static final int PDU_WRITE_OVERHEAD_BYTES = 28;
+
+    /**
+     * TPKT(4) + COTP(3) precede the S7 PDU in the transport frame, and the
+     * connection buffers are {@link Nodave#MAX_RAW_LEN} bytes.
+     */
+    private static final int TRANSPORT_HEADER_BYTES = 7;
 
     /**
      * The Constant PROPERTY_AREA.
@@ -61,19 +86,47 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
      */
     private S7Connection dc;
     private int maxReadBytes = DEFAULT_MAX_READ_BYTES;
+    private int maxWriteBytes = DEFAULT_MAX_WRITE_BYTES;
 
     /**
-     * Initialize the connection
+     * Initialize the connection with the default windows (no PDU negotiation).
      *
      * @param dc the connection instance
      */
     protected void init(final S7Connection dc) {
-        this.init(dc, DEFAULT_MAX_READ_BYTES);
+        this.dc = dc;
+        this.maxReadBytes = DEFAULT_MAX_READ_BYTES;
+        this.maxWriteBytes = DEFAULT_MAX_WRITE_BYTES;
     }
 
+    /**
+     * Initialize the connection from the negotiated PDU length.
+     *
+     * @param dc                 the connection instance
+     * @param negotiatedPduLength the negotiated S7 PDU length, must be positive
+     *                            and large enough to carry at least one byte
+     *                            of user data in a single-item write request
+     */
     protected void init(final S7Connection dc, final int negotiatedPduLength) {
         this.dc = dc;
-        this.maxReadBytes = calculateMaxReadBytes(negotiatedPduLength);
+        this.maxReadBytes = calculateWindow(negotiatedPduLength, PDU_READ_OVERHEAD_BYTES, "read");
+        this.maxWriteBytes = calculateWindow(negotiatedPduLength, PDU_WRITE_OVERHEAD_BYTES, "write");
+    }
+
+    private static int calculateWindow(final int negotiatedPduLength, final int pduOverheadBytes, final String windowKind) {
+        if (negotiatedPduLength <= 0) {
+            throw new S7Exception("negotiated PDU length must be positive, got " + negotiatedPduLength);
+        }
+        if (negotiatedPduLength > Nodave.MAX_RAW_LEN - TRANSPORT_HEADER_BYTES) {
+            throw new S7Exception("negotiated PDU length " + negotiatedPduLength
+                    + " exceeds the transport buffer capacity " + (Nodave.MAX_RAW_LEN - TRANSPORT_HEADER_BYTES));
+        }
+        final int window = negotiatedPduLength - pduOverheadBytes;
+        if (window < 1) {
+            throw new S7Exception("negotiated PDU length " + negotiatedPduLength + " cannot carry a single byte of "
+                    + windowKind + " user data (overhead " + pduOverheadBytes + ")");
+        }
+        return window;
     }
 
     @Override
@@ -82,27 +135,44 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
     }
 
     /**
+     * Returns the payload size of the largest single-item write request that
+     * fits into the negotiated PDU (read and write windows differ because the
+     * write request carries the payload in the outgoing frame).
+     */
+    public int getMaxWriteBytes() {
+        return this.maxWriteBytes;
+    }
+
+    /**
      * {@inheritDoc}
      */
     @Override
     public synchronized byte[] read(final DaveArea area, final int areaNumber, final int bytes, final int offset) throws IOException {
-        if (bytes > this.maxReadBytes) {
-            final byte[] ret = new byte[bytes];
-
-            final byte[] currentBuffer = this.read(area, areaNumber, this.maxReadBytes, offset);
-            System.arraycopy(currentBuffer, 0, ret, 0, currentBuffer.length);
-
-            final byte[] nextBuffer = this.read(area, areaNumber, bytes - this.maxReadBytes, offset + this.maxReadBytes);
-            System.arraycopy(nextBuffer, 0, ret, currentBuffer.length, nextBuffer.length);
-
-            return ret;
-        } else {
-            final byte[] buffer = new byte[bytes];
-            final int ret = this.dc.readBytes(area, areaNumber, offset, bytes, buffer);
-
-            checkResult(ret);
-            return buffer;
+        requireArea(area);
+        requireNonNegative("areaNumber", areaNumber);
+        requireNonNegative("offset", offset);
+        if (bytes < 0) {
+            throw new IllegalArgumentException("bytes must not be negative: " + bytes);
         }
+        if (bytes > 0 && offset > Integer.MAX_VALUE - bytes) {
+            throw new IllegalArgumentException("read range overflows the address space: offset=" + offset + ", bytes=" + bytes);
+        }
+        final byte[] result = new byte[bytes];
+        if (bytes == 0) {
+            return result;
+        }
+        final byte[] chunkBuffer = new byte[this.maxReadBytes];
+        int position = 0;
+        int currentOffset = offset;
+        while (position < bytes) {
+            final int chunk = Math.min(bytes - position, this.maxReadBytes);
+            final int ret = this.dc.readBytes(area, areaNumber, currentOffset, chunk, chunkBuffer);
+            checkResult(ret);
+            System.arraycopy(chunkBuffer, 0, result, position, chunk);
+            position += chunk;
+            currentOffset += chunk;
+        }
+        return result;
     }
 
 
@@ -111,32 +181,40 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
      */
     @Override
     public synchronized void write(final DaveArea area, final int areaNumber, final int offset, final byte[] buffer) throws IOException {
-        this.writeChunked(area, areaNumber, offset, buffer, 0);
+        requireArea(area);
+        requireNonNegative("areaNumber", areaNumber);
+        requireNonNegative("offset", offset);
+        if (buffer == null) {
+            throw new IllegalArgumentException("buffer must not be null");
+        }
+        if (buffer.length > 0 && offset > Integer.MAX_VALUE - buffer.length) {
+            throw new IllegalArgumentException("write range overflows the address space: offset=" + offset
+                    + ", length=" + buffer.length);
+        }
+        int position = 0;
+        int currentOffset = offset;
+        while (position < buffer.length) {
+            final int chunk = Math.min(buffer.length - position, this.maxWriteBytes);
+            final byte[] chunkBuffer = new byte[chunk];
+            System.arraycopy(buffer, position, chunkBuffer, 0, chunk);
+            final int ret = this.dc.writeBytes(area, areaNumber, currentOffset, chunk, chunkBuffer);
+            if (ret != Nodave.RESULT_OK) {
+                throw writeFailure(area, areaNumber, currentOffset, chunk, position, ret);
+            }
+            position += chunk;
+            currentOffset += chunk;
+        }
     }
 
-    private void writeChunked(
-            final DaveArea area,
-            final int areaNumber,
-            final int offset,
-            final byte[] buffer,
-            final int confirmedWrittenBytes) throws IOException {
-        if (buffer.length > this.maxReadBytes) {
-            // Split buffer
-            final byte[] subBuffer = new byte[this.maxReadBytes];
-            final byte[] nextBuffer = new byte[buffer.length - subBuffer.length];
+    private static void requireArea(final DaveArea area) {
+        if (area == null) {
+            throw new IllegalArgumentException("area must not be null");
+        }
+    }
 
-            System.arraycopy(buffer, 0, subBuffer, 0, subBuffer.length);
-            System.arraycopy(buffer, this.maxReadBytes, nextBuffer, 0, nextBuffer.length);
-
-            this.writeChunked(area, areaNumber, offset, subBuffer, confirmedWrittenBytes);
-            this.writeChunked(area, areaNumber, offset + subBuffer.length, nextBuffer,
-                    confirmedWrittenBytes + subBuffer.length);
-        } else {
-            // Size fits
-            final int ret = this.dc.writeBytes(area, areaNumber, offset, buffer.length, buffer);
-            if (ret != Nodave.RESULT_OK) {
-                throw writeFailure(area, areaNumber, offset, buffer.length, confirmedWrittenBytes, ret);
-            }
+    private static void requireNonNegative(final String name, final int value) {
+        if (value < 0) {
+            throw new IllegalArgumentException(name + " must not be negative: " + value);
         }
     }
 
@@ -166,17 +244,6 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
             message.append(" (the PLC acknowledged the earlier chunks; they were not rolled back)");
         }
         return new S7Exception(message.toString());
-    }
-
-    private static int calculateMaxReadBytes(final int negotiatedPduLength) {
-        if (negotiatedPduLength <= 0 || negotiatedPduLength == DEFAULT_MAX_READ_BYTES) {
-            return DEFAULT_MAX_READ_BYTES;
-        }
-        final int calculatedMaxReadBytes = negotiatedPduLength - PDU_READ_OVERHEAD_BYTES;
-        if (calculatedMaxReadBytes <= 0) {
-            return DEFAULT_MAX_READ_BYTES;
-        }
-        return calculatedMaxReadBytes;
     }
 
 }

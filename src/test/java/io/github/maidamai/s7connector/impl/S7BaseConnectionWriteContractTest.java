@@ -45,7 +45,7 @@ class S7BaseConnectionWriteContractTest {
 
     @Test
     void writeReportsConfirmedBytesWhenSecondChunkFails() {
-        // negotiated PDU 240 -> chunk size 240-18=222; a 300-byte write splits into 222+78
+        // negotiated PDU 240 -> write window 240-28=212; a 300-byte write splits into 212+88
         final ScriptedWriteConnection nodaveConnection = new ScriptedWriteConnection().failWriteNumberWith(2, 0x0A);
         final S7BaseConnection connector = testConnector(nodaveConnection, 240);
 
@@ -54,9 +54,9 @@ class S7BaseConnectionWriteContractTest {
                 "a second-chunk rejection must fail the public write call");
 
         final String message = failure.getMessage();
-        assertTrue(message.contains("offset=222"), "message should carry the failing chunk offset, but was: " + message);
-        assertTrue(message.contains("length=78"), "message should carry the failing chunk length, but was: " + message);
-        assertTrue(message.contains("confirmedWrittenBytes=222"),
+        assertTrue(message.contains("offset=212"), "message should carry the failing chunk offset, but was: " + message);
+        assertTrue(message.contains("length=88"), "message should carry the failing chunk length, but was: " + message);
+        assertTrue(message.contains("confirmedWrittenBytes=212"),
                 "message must state how many bytes the PLC acknowledged before the failure, but was: " + message);
         assertTrue(message.contains("0x000A"),
                 "message should carry the raw PLC status code in hex, but was: " + message);
@@ -64,7 +64,7 @@ class S7BaseConnectionWriteContractTest {
 
     @Test
     void writeReportsConfirmedBytesWhenThirdChunkFails() {
-        // negotiated PDU 240 -> chunk size 222; a 500-byte write splits into 222+222+56
+        // negotiated PDU 240 -> write window 212; a 500-byte write splits into 212+212+76
         final ScriptedWriteConnection nodaveConnection = new ScriptedWriteConnection().failWriteNumberWith(3, 0x05);
         final S7BaseConnection connector = testConnector(nodaveConnection, 240);
 
@@ -73,9 +73,9 @@ class S7BaseConnectionWriteContractTest {
                 "a third-chunk rejection must fail the public write call");
 
         final String message = failure.getMessage();
-        assertTrue(message.contains("offset=444"), "message should carry the failing chunk offset, but was: " + message);
-        assertTrue(message.contains("length=56"), "message should carry the failing chunk length, but was: " + message);
-        assertTrue(message.contains("confirmedWrittenBytes=444"),
+        assertTrue(message.contains("offset=424"), "message should carry the failing chunk offset, but was: " + message);
+        assertTrue(message.contains("length=76"), "message should carry the failing chunk length, but was: " + message);
+        assertTrue(message.contains("confirmedWrittenBytes=424"),
                 "confirmed bytes must accumulate across more than two chunks, but was: " + message);
     }
 
