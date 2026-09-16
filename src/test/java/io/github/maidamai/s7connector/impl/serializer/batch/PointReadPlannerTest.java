@@ -9,6 +9,8 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PointReadPlannerTest {
     private final PointReadPlanner planner = new PointReadPlanner();
@@ -26,6 +28,44 @@ class PointReadPlannerTest {
         assertEquals(0, requests.get(0).getStartOffset(), "batch should start at the first byte offset");
         assertEquals(5, requests.get(0).getLength(), "batch should span the full continuous byte range");
         assertEquals(3, requests.get(0).getPlannedPointReads().size(), "batch should keep all original points");
+    }
+
+    @Test
+    void rejectsNonPositiveSizeForNonBoolPoints() {
+        final List<PlcS7PointVariable> zeroSize = Arrays.asList(
+                point(DaveArea.DB, 1, 0, 0, 0, S7Type.INT, Short.class));
+        final IllegalArgumentException zeroEx = assertThrows(IllegalArgumentException.class,
+                () -> this.planner.plan(zeroSize, 96));
+        assertTrue(zeroEx.getMessage().contains("size=0")
+                && zeroEx.getMessage().contains("index 0"), zeroEx.getMessage());
+
+        final List<PlcS7PointVariable> negativeSize = Arrays.asList(
+                point(DaveArea.DB, 1, 4, 0, -3, S7Type.REAL, Float.class));
+        final IllegalArgumentException negativeEx = assertThrows(IllegalArgumentException.class,
+                () -> this.planner.plan(negativeSize, 96));
+        assertTrue(negativeEx.getMessage().contains("size=-3"), negativeEx.getMessage());
+    }
+
+    @Test
+    void acceptsBoolPointsWithAnySizeMarker() {
+        final List<PlcS7PointVariable> points = Arrays.asList(
+                point(DaveArea.DB, 1, 3, 5, 0, S7Type.BOOL, Boolean.class));
+
+        final List<BatchReadRequest> requests = this.planner.plan(points, 96);
+
+        assertEquals(1, requests.size());
+        assertEquals(1, requests.get(0).getLength(), "a BOOL point covers exactly one byte");
+    }
+
+    @Test
+    void rejectsSinglePointLargerThanTheWindowWithSizesInMessage() {
+        final List<PlcS7PointVariable> points = Arrays.asList(
+                point(DaveArea.DB, 1, 0, 0, 200, S7Type.STRING, String.class));
+
+        final IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> this.planner.plan(points, 96));
+        assertTrue(ex.getMessage().contains("coverageLength=200")
+                && ex.getMessage().contains("maxWindowLength=96"), ex.getMessage());
     }
 
     @Test
