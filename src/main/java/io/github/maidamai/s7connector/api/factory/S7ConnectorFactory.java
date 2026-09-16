@@ -8,6 +8,13 @@ import io.github.maidamai.s7connector.impl.S7TCPConnection;
 /**
  * S7 connector factory, currently only for TCP connections
  *
+ * <p>Parameter constraints and the connection lifecycle contract are
+ * documented in {@code docs/api-contract.md}. In short: {@code rack} and
+ * {@code slot} must be >= 0, the PLC type must not be null, and a built
+ * connector is a single-use resource — after {@code close()} or after any
+ * failure that invalidated the transport, build a new connector instead of
+ * reusing the instance.</p>
+ *
  * @author Thomas Rudin
  */
 public class S7ConnectorFactory {
@@ -28,8 +35,15 @@ public class S7ConnectorFactory {
         }
 
         /**
-         * Builds a connection with given params
+         * Builds and connects a new connector with the given parameters.
          *
+         * <p>The returned connector is a single-use resource: it holds one
+         * TCP connection, may be shared across threads (requests are
+         * serialized internally), must be closed, and is permanently unusable
+         * after {@code close()} or a transport failure. See
+         * {@code docs/api-contract.md}.</p>
+         *
+         * @return a new, connected connector
          * @throws IllegalArgumentException if the PLC type is null or rack/slot is negative
          */
         public S7Connector build() {
