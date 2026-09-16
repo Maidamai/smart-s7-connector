@@ -29,8 +29,19 @@ public class S7ConnectorFactory {
 
         /**
          * Builds a connection with given params
+         *
+         * @throws IllegalArgumentException if the PLC type is null or rack/slot is negative
          */
         public S7Connector build() {
+            if (this.plcsType == null) {
+                throw new IllegalArgumentException("plcsType must not be null");
+            }
+            if (this.rack < 0) {
+                throw new IllegalArgumentException("rack must not be negative: " + this.rack);
+            }
+            if (this.slot < 0) {
+                throw new IllegalArgumentException("slot must not be negative: " + this.slot);
+            }
             return new S7TCPConnection(this.host, this.rack, this.slot, this.port, this.timeout, this.plcsType);
         }
 
@@ -52,16 +63,26 @@ public class S7ConnectorFactory {
 
         /**
          * use rack, default is 0
+         *
+         * @throws IllegalArgumentException if rack is negative
          */
         public TCPConnectionBuilder withRack(final int rack) {
+            if (rack < 0) {
+                throw new IllegalArgumentException("rack must not be negative: " + rack);
+            }
             this.rack = rack;
             return this;
         }
 
         /**
          * use slot, default is 2
+         *
+         * @throws IllegalArgumentException if slot is negative
          */
         public TCPConnectionBuilder withSlot(final int slot) {
+            if (slot < 0) {
+                throw new IllegalArgumentException("slot must not be negative: " + slot);
+            }
             this.slot = slot;
             return this;
         }
@@ -79,8 +100,12 @@ public class S7ConnectorFactory {
     /**
      * @param type choose a siemens plc type to build a tcp connector.
      * @return returns a new TCP connection builder
+     * @throws IllegalArgumentException if type is null
      */
     public static TCPConnectionBuilder buildTCPConnector(SiemensPLCS type) {
+        if (type == null) {
+            throw new IllegalArgumentException("type must not be null");
+        }
         return new TCPConnectionBuilder(type);
     }
 

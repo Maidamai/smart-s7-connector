@@ -18,6 +18,13 @@ import java.io.IOException;
 /**
  * TCP_Connection to a S7 PLC
  *
+ * <p>Lifecycle: a connection object is single-use. After any failure
+ * (construction/setup error, transport timeout, interrupted exchange,
+ * remote disconnect) or after {@link #close()}, the object is unusable and
+ * must be discarded; create a new {@code S7TCPConnection} instead. There is
+ * no automatic reconnect and no supported way to revive a closed or failed
+ * connection.</p>
+ *
  * @author Thomas Rudin
  * @href http://libnodave.sourceforge.net/
  */

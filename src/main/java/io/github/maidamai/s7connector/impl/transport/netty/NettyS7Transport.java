@@ -22,6 +22,33 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * Netty based S7 transport.
+ *
+ * <p>Terminal-state contract: only a fully successful
+ * {@link #writeAndRead(byte[], int)} exchange leaves the transport usable.
+ * After any of the following outcomes the transport is permanently closed
+ * ({@link #isClosed()} returns {@code true}, the underlying channel and
+ * event loop are shut down, and any pending response future is completed
+ * exceptionally) and every subsequent {@link #writeAndRead(byte[], int)}
+ * call fails with an {@link S7TransportException} ("channel is not
+ * connected"):</p>
+ *
+ * <ul>
+ *   <li>a write timeout ({@code writeTimeout}),</li>
+ *   <li>a read timeout ({@code readTimeout}),</li>
+ *   <li>the waiting thread was interrupted ({@code read}/{@code write}
+ *       with an {@link InterruptedException} cause; the interrupt status
+ *       is restored before the exception is thrown),</li>
+ *   <li>the remote end closed the channel ({@code channelInactive}),</li>
+ *   <li>the initial {@link #connect()} failed, or</li>
+ *   <li>{@link #close()} was called explicitly.</li>
+ * </ul>
+ *
+ * <p>All of these are terminal: a transport that failed, timed out, was
+ * interrupted or was closed must be discarded and replaced by a new
+ * instance. There is no automatic reconnect.</p>
+ */
 public final class NettyS7Transport implements S7Transport {
     private static final int MAX_FRAME_LENGTH = 2048;
     private static final int TPKT_LENGTH_FIELD_OFFSET = 2;
@@ -72,7 +99,9 @@ public final class NettyS7Transport implements S7Transport {
             Thread.currentThread().interrupt();
             this.close();
             throw new S7TransportException("connect", this.config, 0, cause);
-        } catch (final RuntimeException cause) {
+        } catch (final Exception cause) {
+            // Netty rethrows checked connect failures (e.g. ConnectException)
+            // directly, so catch Exception, not only RuntimeException.
             this.close();
             throw new S7TransportException("connect", this.config, 0, cause);
         }
@@ -119,8 +148,14 @@ public final class NettyS7Transport implements S7Transport {
             throw new S7TransportException("readTimeout", this.config, requestLength, cause);
         } catch (final InterruptedException cause) {
             Thread.currentThread().interrupt();
+            this.failPendingAndClose(cause);
             throw new S7TransportException("read", this.config, requestLength, cause);
         } catch (final ExecutionException cause) {
+            if (this.channel == null || !this.channel.isActive()) {
+                // the future failed because the channel died (remote close
+                // or transport error): the transport is unusable, close it
+                this.closeQuietly();
+            }
             throw new S7TransportException("read", this.config, requestLength, cause.getCause());
         }
     }
@@ -131,6 +166,15 @@ public final class NettyS7Transport implements S7Transport {
             this.close();
         } catch (final IOException closeFailure) {
             cause.addSuppressed(closeFailure);
+        }
+    }
+
+    private void closeQuietly() {
+        try {
+            this.close();
+        } catch (final IOException closeFailure) {
+            // closing after a channel failure is best effort; the read
+            // failure already reported the original problem
         }
     }
 
