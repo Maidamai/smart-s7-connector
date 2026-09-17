@@ -44,7 +44,10 @@ belong in this repository, in CI logs, or in issue tickets.
 The `release` profile attaches sources, javadoc, and GPG signatures (requires
 a local signing key; `doclint` is disabled for the Java-8-era javadoc).
 Verify the produced files in `target/`: main jar, sources jar, javadoc jar,
-and a `.asc` signature for each.
+and a `.asc` signature for each. The release POM is the repository's
+`pom.xml` at the release commit; upload it as an asset named
+`smart-s7-connector-<version>.pom` and detach-sign it (`gpg --armor
+--detach-sign`) into `<name>.pom.asc` alongside the other signatures.
 
 ## Publish (Central Portal)
 
@@ -58,22 +61,46 @@ review queue before it syncs to Maven Central.
 
 ## Post-release verification
 
-From a clean consumer project (empty local repository) resolve and use the
-artifact:
+Two independent gates; a release is not "verified" until the first one
+passes, and not "on Central" until the second one does.
 
-```bash
-mvn -B dependency:get -Dartifact=io.github.maidamai:smart-s7-connector:<version>
-```
+1. **Published-attachment verification (fail-closed, every GitHub Release).**
+   `consumer-smoke/verify-release.sh` downloads the actual Release assets,
+   checks the SHA256SUMS entries, verifies every `.asc` against the pinned
+   primary fingerprint, validates the signed POM coordinates and the license
+   resources, and only then installs into an isolated repository and runs
+   the consumer tests (see `consumer-smoke/README.md`). Run locally:
 
-Run at least one public API example against the resolved artifact, not the
-local build. If this fails, the release is not done.
+   ```bash
+   S7_VERSION=<version> bash consumer-smoke/verify-release.sh
+   ```
+
+   The `Verify published release` workflow runs the same verifier on GitHub
+   automatically on the `published` event; if it fired before all assets
+   were uploaded, rerun it via workflow_dispatch. A red run means the
+   release is not verified — fix or replace the assets, never the gate.
+
+2. **Central resolution (only after Central publication).** From a clean
+   consumer project (empty local repository) resolve and use the artifact:
+
+   ```bash
+   mvn -B dependency:get -Dartifact=io.github.maidamai:smart-s7-connector:<version>
+   ```
+
+   Run at least one public API example against the resolved artifact, not the
+   local build. If this fails, the release is not done.
 
 ## Tag and GitHub Release
 
 - Tag the release commit as `v<version>` and push the tag.
 - Create a GitHub Release for the tag with the changelog section for this
-  version as the release notes. Main jar, sources, javadoc, and their
-  signatures must correspond to exactly this version and commit.
+  version as the release notes. Main jar, sources jar, javadoc jar, the POM,
+  and their signatures must correspond to exactly this version and commit.
+- Attach the complete asset set the verifier expects: main/sources/javadoc
+  JARs, the POM, one `.asc` per artifact, a `SHA256SUMS` with exactly the
+  four artifact entries, and `release-signing-key.asc` (the armored **public**
+  signing key — never a private key). Without these the post-release
+  verification gate fails closed.
 
 ## After releasing
 

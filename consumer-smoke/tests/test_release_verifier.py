@@ -283,6 +283,53 @@ class RealGpgTest(unittest.TestCase):
     def test_real_bound_signing_subkey(self):
         self.assertEqual((self.subkey, self.primary), self.verify("subkey"))
 
+    @contextlib.contextmanager
+    def import_verifier(self):
+        """A ReleaseVerifier whose GPG home is a disposable real directory."""
+        with tempfile.TemporaryDirectory(prefix="s7imp-") as home:
+            try:
+                verifier = v.ReleaseVerifier(Path(home) / "unused-workspace", Path(home) / "unused-consumer")
+                verifier._home = Path(home)
+                yield verifier
+            finally:
+                if shutil.which("gpgconf"):
+                    subprocess.run(["gpgconf", "--homedir", home, "--kill", "all"], capture_output=True)
+
+    def test_real_import_accepts_exported_public_key(self):
+        with self.import_verifier() as verifier:
+            verifier.import_key(self.primary, str(self.public), "")
+
+    def test_real_import_rejects_wrong_key_for_pinned_fingerprint(self):
+        with tempfile.TemporaryDirectory(prefix="sother-") as other_dir:
+            other = Path(other_dir)
+            try:
+                self.cmd(["--pinentry-mode", "loopback", "--passphrase", "", "--quick-generate-key",
+                          "Other Fixture <other@example.invalid>", "ed25519", "cert", "0"], home=other)
+                listing = self.cmd(["--with-colons", "--fingerprint", "--list-keys"], home=other).stdout
+                other_fpr = next(line.split(":")[9] for line in listing.splitlines() if line.startswith("fpr:"))
+                exported = self.cmd(["--armor", "--export", other_fpr], home=other).stdout
+                (other / "other.asc").write_text(exported, encoding="utf-8")
+                with self.import_verifier() as verifier:
+                    with self.assertRaises(v.VerificationError):
+                        verifier.import_key(self.primary, str(other / "other.asc"), "")
+            finally:
+                if shutil.which("gpgconf"):
+                    subprocess.run(["gpgconf", "--homedir", other_dir, "--kill", "all"], capture_output=True)
+
+    def test_real_import_rejects_subkey_fingerprint_pin(self):
+        # The trust anchor must be the primary fingerprint: pinning the
+        # (real, exported) subkey fingerprint is rejected after import.
+        with self.import_verifier() as verifier:
+            with self.assertRaises(v.VerificationError):
+                verifier.import_key(self.subkey, str(self.public), "")
+
+    def test_real_import_rejects_private_key_material(self):
+        forged = self.root / "mixed.asc"
+        forged.write_bytes(self.public.read_bytes() + b"\n-----BEGIN PGP PRIVATE KEY BLOCK-----\n")
+        with self.import_verifier() as verifier:
+            with self.assertRaises(v.VerificationError):
+                verifier.import_key(self.primary, str(forged), "")
+
     def test_real_wrong_primary_pin(self):
         with self.assertRaises(v.VerificationError):
             self.verify("subkey", expected="C" * 40)
