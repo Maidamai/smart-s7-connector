@@ -8,10 +8,10 @@
     <artifactId>smart-s7-connector</artifactId>
     <groupId>io.github.maidamai</groupId>
     <packaging>jar</packaging>
-    <!-- 1.0.0-SNAPSHOT: no artifact has ever been published. The license
-         provenance decision (docs/provenance.md) was closed on 2026-09-17
-         as split per-file licensing; the release gate it held is lifted. -->
-    <version>1.0.0-SNAPSHOT</version>
+    <!-- 1.0.0-rc.1: first public pre-release candidate (GitHub Releases,
+         2026-09-17). Maven Central publication is still pending maintainer
+         credentials; see docs/releasing.md and docs/verification/. -->
+    <version>1.0.0-rc.1</version>
     <name>smart-s7-connector</name>
     <description>Lightweight Siemens S7 PLC communication library for Java.</description>
     <url>https://github.com/Maidamai/smart-s7-connector</url>

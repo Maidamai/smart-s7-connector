@@ -3,6 +3,24 @@
 All notable changes to this project are documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.0.0-rc.1] - 2026-09-17
+
+First public **pre-release candidate**. All changes below (the full hardening
+cycle) are included. Published as signed artifacts attached to the GitHub
+Release for tag `v1.0.0-rc.1`; **not yet on Maven Central** (publication
+pending maintainer Central Portal credentials — see `docs/releasing.md`).
+
+Scope statements kept honest by design:
+
+- Real-PLC verification has **not** been performed: the local network scan
+  on 2026-09-17 found two TCP/102 candidates that both failed the
+  iso-on-tcp handshake, so every real-hardware row in
+  `docs/compatibility.md` remains "not verified" (attempt record:
+  `docs/verification/live-plc-attempt-2026-09-17.md`).
+- The rc.1 candidate passed clean-consumer verification (artifact
+  checksums, license resources, public API smoke): see
+  `docs/verification/consumer-rc1-2026-09-17.md`.
+
 ## [1.0.0-SNAPSHOT] - unreleased
 
 No artifact has been published yet. This version reflects the security and

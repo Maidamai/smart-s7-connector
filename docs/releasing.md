@@ -1,9 +1,13 @@
 # Releasing
 
-This project has never published an artifact. The license provenance
-decision was closed on 2026-09-17 (split per-file licensing,
-`docs/provenance.md` §5); the license-side release gate is lifted and the
-flow below may be executed once the remaining preconditions are met.
+The first public artifact is the pre-release `v1.0.0-rc.1` (2026-09-17,
+GitHub Release with GPG-signed jars; tag `v1.0.0-rc.1`). It is **not** on
+Maven Central yet: publication requires maintainer Central Portal
+credentials, which do not exist in this environment or repository. The
+license provenance decision was closed on 2026-09-17 (split per-file
+licensing, `docs/provenance.md` §5); the license-side release gate is
+lifted and the flow below may be executed once the remaining preconditions
+are met.
 
 The whole flow below is a maintainer-only, manual operation. No credentials
 belong in this repository, in CI logs, or in issue tickets.
