@@ -87,3 +87,13 @@ javadoc jar 内容抽查：根部含 `index.html`、`overview-tree.html`、`allc
 3. **GPG 签名**：构建以 `-Dgpg.skip=true` 干跑，未产生 `.asc` 签名，签名与发布流程须由维护者按 `docs/releasing.md` 执行。
 
 **本报告的 loopback/模拟证据不能替代实机验证**：loopback 仿真（`LocalS1500Server`）与不可达主机失败契约只覆盖协议栈的本地路径与失败分支，不能证明与任何真实西门子 PLC 的连接、读写行为及现场工况下的表现。
+
+## 8. 附录：与实际发布物的对应关系（2026-09-17 补记）
+
+本报告验证的候选构建自 `21abe17`。正式发布 tag `v1.0.0-rc.1`（commit `01a3537`）相对
+`21abe17` 仅增加了文档与 pom 版本号（无任何 `.java` 源码变更，可由
+`git diff 21abe17 01a3537 -- src/` 为空核实）。tag 构建产物（完整测试 132/132 后以
+release profile 构建、GPG 签名）已作为 GitHub Pre-release 附件发布，其校验和以该
+Release 的 `SHA256SUMS` 附件为准（因 jar 条目时间戳，字节级校验和与本报告第 2 节
+不同属正常现象；源码同一性以上述空 diff 为准）。当日实机尝试记录见
+[live-plc-attempt-2026-09-17.md](live-plc-attempt-2026-09-17.md)。
