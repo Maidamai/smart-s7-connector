@@ -248,17 +248,24 @@ class ReleaseVerifier:
         check_checksums(manifest, artifacts)
         print("[PASS] all four artifact checksums (including the POM)")
         # Short isolated homedir avoids GPG socket path limits. Never touch ~/.gnupg.
-        with tempfile.TemporaryDirectory(prefix="s7gpg-") as home:
-            self._home = Path(home)
-            os.chmod(home, 0o700)
-            try:
-                self.import_key(expected, key_file, base)
-                for path in artifacts:
-                    self.verify_signature(path, expected)
-            finally:
-                if shutil.which("gpgconf"):
+        home = tempfile.mkdtemp(prefix="s7gpg-")
+        self._home = Path(home)
+        os.chmod(home, 0o700)
+        try:
+            self.import_key(expected, key_file, base)
+            for path in artifacts:
+                self.verify_signature(path, expected)
+        finally:
+            # Cleanup is best effort: a stuck agent or files locked by
+            # Windows must not flip an already-decided verification into a
+            # failure, and a gate failure must still propagate.
+            if shutil.which("gpgconf"):
+                try:
                     subprocess.run(["gpgconf", "--homedir", home, "--kill", "all"],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+                except subprocess.SubprocessError:
+                    print("[WARN] gpg-agent shutdown did not finish; continuing")
+            shutil.rmtree(home, ignore_errors=True)
         check_pom(pom, version)
         check_resources(main, sources, javadoc)
         print("[PASS] exact POM GAV, main/sources license resources and Javadoc index")
