@@ -90,6 +90,18 @@ correctness hardening cycle driven by an external static audit of commit
   forced cast on `dispense(List)`.
 - Release preparation: project metadata (URL, developers, SCM, issues) and a
   `release` profile (sources, javadoc, GPG) — see `docs/releasing.md`.
+- **Release-readiness CI (2nd audit round, stage 2):** a `release-dry-run`
+  job builds with `-Prelease -Dgpg.skip=true` (no keys in CI) and asserts
+  the five `META-INF` license resources in both the main and the sources
+  JAR plus the presence of the sources/javadoc JARs; failing matrix legs
+  upload their surefire reports as short-lived artifacts.
+- **Clean-consumer candidate verification:** a `1.0.0-rc.1` candidate built
+  from commit `21abe17` (worktree, release profile, full test run) was
+  consumed by a fresh project resolving only the artifact coordinates from
+  an isolated local repository — public API loads, unreachable-host failure
+  contract holds, 6/6 consumer tests green, 10/10 license-resource
+  assertions. Real-PLC verification remains explicitly unverified; see
+  `docs/verification/consumer-rc1-2026-09-17.md`.
 
 ### Security
 

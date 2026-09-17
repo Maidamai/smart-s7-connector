@@ -15,7 +15,10 @@ belong in this repository, in CI logs, or in issue tickets.
    `META-INF/LICENSE`, `META-INF/NOTICE`,
    `META-INF/LICENSE_LIBNODAVE.txt`, `META-INF/THIRD_PARTY_NOTICES.md`,
    and `META-INF/licenses/LGPL-2.0.txt` (verify by unpacking before
-   publishing).
+   publishing). CI automates this on every push to master and every pull
+   request: the `release-dry-run` job in `.github/workflows/ci.yml` builds
+   with `-Prelease -Dgpg.skip=true` and fails when any of these resources
+   is missing — but re-check the actual release artifacts by hand as well.
 2. `./mvnw -B -ntp clean verify` green on the release commit; CI green on the
    same commit for the full JDK matrix.
 3. `CHANGELOG.md` updated with the release version and date.

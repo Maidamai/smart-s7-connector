@@ -3,6 +3,7 @@
 # Java 8 target: JDK 9+ legs compile with release=8 (API-checked, see the
 # jdk9plus-release profile in pom.xml); the JDK 8 leg compiles natively via
 # source/target, so no leg passes the release flag to a JDK 8 javac.
+# release-dry-run exercises the release profile as a dry run (no signing keys).
 name: CI
 
 on:
@@ -39,3 +40,61 @@ jobs:
           cache: maven
       - name: Build and verify
         run: ./mvnw -B -ntp clean verify
+      - name: Upload test reports
+        if: failure()
+        # actions/upload-artifact v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: surefire-reports-jdk${{ matrix.java }}
+          path: target/surefire-reports/**
+          retention-days: 7
+
+  # Release profile dry run: verifies the release wiring (sources/javadoc
+  # generation, license resources bundled with the artifacts) without any
+  # keys; real signing and upload stay manual per docs/releasing.md.
+  release-dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        # actions/checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up JDK 21
+        # actions/setup-java v6.0.1
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - name: Release profile dry run (no signing keys)
+        run: ./mvnw -B -ntp clean verify -Prelease -Dgpg.skip=true
+      - name: Assert license resources in release artifacts
+        run: |
+          set -e
+          # Main jar without hardcoding the version: exclude -sources/-javadoc.
+          main_jar="$(ls target/*.jar | grep -v -e '-sources\.jar$' -e '-javadoc\.jar$')"
+          sources_jar="$(ls target/*-sources.jar)"
+          javadoc_jar="$(ls target/*-javadoc.jar)"
+          echo "Main jar: $main_jar"
+          echo "Sources jar: $sources_jar"
+          echo "Javadoc jar: $javadoc_jar"
+
+          missing=0
+          for jar in "$main_jar" "$sources_jar"; do
+            echo "Checking license resources in $jar"
+            for entry in \
+              META-INF/LICENSE \
+              META-INF/NOTICE \
+              META-INF/LICENSE_LIBNODAVE.txt \
+              META-INF/THIRD_PARTY_NOTICES.md \
+              META-INF/licenses/LGPL-2.0.txt; do
+              if ! jar tf "$jar" | grep -qx "$entry"; then
+                echo "MISSING in $jar: $entry"
+                missing=1
+              fi
+            done
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
