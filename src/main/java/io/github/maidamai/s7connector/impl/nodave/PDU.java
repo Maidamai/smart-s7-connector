@@ -38,6 +38,20 @@ public final class PDU {
 
     public final static byte FUNC_WRITE = 5;
 
+    /**
+     * An S7 request item encodes the DB/area number in an unsigned 16-bit
+     * field: numbers above 65535 are not representable.
+     */
+    public static final int MAX_ITEM_DB_NUMBER = 0xFFFF;
+
+    /**
+     * An S7 request item encodes the start address in an unsigned 24-bit
+     * field. Byte-addressed areas hold the bit address (byte offset &times; 8)
+     * in it, so their byte offsets are limited to 2097151; TIMER/COUNTER
+     * reads hold the address in raw units.
+     */
+    public static final long MAX_ITEM_ADDRESS = 0xFFFFFFL;
+
     public int data;
 
     int dlen;
@@ -59,7 +73,39 @@ public final class PDU {
         this.header = pos;
     }
 
+    /**
+     * Guards a value that is encoded into an unsigned 16-bit item field. The
+     * encoder must never silently truncate: a truncated DB number or item
+     * count would address a different, valid-looking target.
+     */
+    private static void requireEncodableWord(final String fieldName, final int value) {
+        if (value < 0 || value > MAX_ITEM_DB_NUMBER) {
+            throw new IllegalArgumentException(fieldName + " " + value
+                    + " does not fit the unsigned 16-bit field of an S7 request item (max " + MAX_ITEM_DB_NUMBER + ")");
+        }
+    }
+
+    /**
+     * Guards a value that is encoded into the unsigned 24-bit start address
+     * field of an item.
+     */
+    private static void requireEncodableAddress(final String what, final long encodedAddress) {
+        if (encodedAddress < 0 || encodedAddress > MAX_ITEM_ADDRESS) {
+            throw new IllegalArgumentException(what + " " + encodedAddress
+                    + " does not fit the unsigned 24-bit start address field of an S7 request item (max "
+                    + MAX_ITEM_ADDRESS + ")");
+        }
+    }
+
+    private static boolean isTimerOrCounterArea(final DaveArea area) {
+        return (area == DaveArea.TIMER) || (area == DaveArea.COUNTER)
+                || (area == DaveArea.TIMER200) || (area == DaveArea.COUNTER200);
+    }
+
     public int addBitVarToReadRequest(final int area, final int DBnum, final int start, final int len) {
+        requireEncodableWord("DBnum", DBnum);
+        requireEncodableWord("len", len);
+        requireEncodableAddress("bit start address", (long) start);
         final byte pa[] = {0x12, 0x0a, 0x10, 0x01, /* single bits */
                 0x00, 0x1A, /* insert length in bytes here */
                 0x00, 0x0B, /* insert DB number here */
@@ -81,6 +127,9 @@ public final class PDU {
 
     public void addBitVarToWriteRequest(final DaveArea area, final int DBnum, final int start, final int byteCount,
                                         final byte[] buffer) {
+        requireEncodableWord("DBnum", DBnum);
+        requireEncodableWord("byteCount", byteCount);
+        requireEncodableAddress("bit start address", (long) start);
         final byte da[] = {0, 3, 0, 0,};
         final byte pa[] = {0x12, 0x0a, 0x10, 0x01, /* single bit */
                 0, 0, /* insert length in bytes here */
@@ -193,6 +242,8 @@ public final class PDU {
     }
 
     public int addVarToReadRequest(final DaveArea area, final int DBnum, int start, final int len) {
+        requireEncodableWord("DBnum", DBnum);
+        requireEncodableWord("len", len);
         final byte[] pa = {0x12, 0x0a, 0x10,
                 0x02, /* 1=single bit, 2=byte, 4=word */
                 0x00, 0x1A, /* length in bytes */
@@ -201,11 +252,17 @@ public final class PDU {
                 0x00, 0x00, (byte) 0xC0 /* start address in bits */
         };
 
+        // TIMER/COUNTER items carry the start address in raw units, every
+        // other area carries a bit address (byte offset * 8). Validate the
+        // encoded value in long math before the int arithmetic below can
+        // wrap around.
+        final boolean rawUnits = isTimerOrCounterArea(area);
+        requireEncodableAddress("encoded start address of " + area.name(),
+                rawUnits ? (long) start : 8L * start);
         if ((area == DaveArea.ANALOGINPUTS200) || (area == DaveArea.ANALOGOUTPUTS200)) {
             pa[3] = 4;
             start *= 8; /* bits */
-        } else if ((area == DaveArea.TIMER) || (area == DaveArea.COUNTER) || (area == DaveArea.TIMER200)
-                || (area == DaveArea.COUNTER200)) {
+        } else if (rawUnits) {
             pa[3] = (byte) area.getCode();
         } else {
             start *= 8; /* bits */
@@ -229,6 +286,10 @@ public final class PDU {
 
     public void addVarToWriteRequest(final DaveArea area, final int DBnum, int start, final int byteCount,
                                      final byte[] buffer) {
+        requireEncodableWord("DBnum", DBnum);
+        requireEncodableWord("byteCount", byteCount);
+        // write items always carry a bit address (byte offset * 8)
+        requireEncodableAddress("encoded start address of " + area.name(), 8L * start);
         final byte da[] = {0, 4, 0, 0,};
         final byte pa[] = {0x12, 0x0a, 0x10, 0x02,
                 /* unit (for count?, for consistency?) byte */

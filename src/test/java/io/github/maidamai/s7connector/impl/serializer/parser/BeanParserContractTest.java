@@ -124,6 +124,63 @@ class BeanParserContractTest {
         public Short[] words;
     }
 
+    static class StringArrayCoverageBean {
+        @S7Variable(type = S7Type.STRING, byteOffset = 0, size = 10, arraySize = 2)
+        public String[] tags;
+    }
+
+    static class NestedItemBean {
+        @S7Variable(type = S7Type.INT, byteOffset = 0)
+        public Short x;
+
+        @S7Variable(type = S7Type.BYTE, byteOffset = 2)
+        public Byte y;
+    }
+
+    static class StructArrayCoverageBean {
+        @S7Variable(type = S7Type.STRUCT, byteOffset = 1, arraySize = 3)
+        public NestedItemBean[] items;
+    }
+
+    static class OversizedStringBean {
+        @S7Variable(type = S7Type.STRING, byteOffset = 0, size = 255)
+        public String text;
+    }
+
+    static class NegativeArraySizeBean {
+        @S7Variable(type = S7Type.INT, byteOffset = 0, arraySize = -1)
+        public Short[] words;
+    }
+
+    static class NegativeOffsetBean {
+        @S7Variable(type = S7Type.INT, byteOffset = -1)
+        public Short x;
+    }
+
+    static class NegativeSizeBean {
+        @S7Variable(type = S7Type.STRING, byteOffset = 0, size = -1)
+        public String text;
+    }
+
+    static class SelfReferencingBean {
+        @S7Variable(type = S7Type.INT, byteOffset = 0)
+        public Short x;
+
+        @S7Variable(type = S7Type.STRUCT, byteOffset = 2)
+        public SelfReferencingBean inner;
+    }
+
+    static class SelfReferencingArrayBean {
+        @S7Variable(type = S7Type.STRUCT, byteOffset = 0, arraySize = 2)
+        public SelfReferencingArrayBean[] children;
+    }
+
+    static class OversizedCoverageBean {
+        // 254 + 2 header bytes per element * 10,000,000 elements > Integer.MAX_VALUE
+        @S7Variable(type = S7Type.STRING, byteOffset = 0, size = 254, arraySize = 10_000_000)
+        public String[] texts;
+    }
+
     // ------------------------------------------------------------------
     // tests
     // ------------------------------------------------------------------
@@ -200,6 +257,66 @@ class BeanParserContractTest {
         for (final BeanEntry entry : result.entries) {
             assertNotNull(entry.serializer, "every entry needs a serializer instance");
         }
+    }
+
+    @Test
+    void stringArrayCoverageAndElementOffsetsShareTheCapacityStride() throws Exception {
+        final BeanParseResult result = BeanParser.parse(StringArrayCoverageBean.class);
+        assertEquals(24, result.blockSize, "2 elements of capacity 10 + 2 header bytes each");
+        final BeanEntry entry = result.entries.get(0);
+        assertEquals(12, entry.getElementByteOffset(1),
+                "the second STRING element must sit after the first element's full capacity, not after 2 header bytes");
+        assertEquals(0, entry.getElementByteOffset(0));
+    }
+
+    @Test
+    void structArrayCoverageCountsEveryNestedBlock() throws Exception {
+        final BeanParseResult result = BeanParser.parse(StructArrayCoverageBean.class);
+        // 3 nested blocks of 3 bytes each, starting at byte 1
+        assertEquals(10, result.blockSize, "STRUCT array coverage must count every element's nested block size");
+        final BeanEntry entry = result.entries.get(0);
+        assertEquals(1, entry.getElementByteOffset(0));
+        assertEquals(4, entry.getElementByteOffset(1), "second struct element must advance by the nested block size");
+        assertEquals(7, entry.getElementByteOffset(2));
+    }
+
+    @Test
+    void rejectsStringCapacityAboveTheEncodableHeaderByte() {
+        final S7Exception ex = assertThrows(S7Exception.class, () -> BeanParser.parse(OversizedStringBean.class));
+        assertTrue(ex.getMessage().contains("255"), "message should name the offending size: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("254"), "message should name the encodable maximum: " + ex.getMessage());
+    }
+
+    @Test
+    void rejectsNegativeAnnotationValuesAtParseTime() {
+        assertThrows(S7Exception.class, () -> BeanParser.parse(NegativeArraySizeBean.class),
+                "negative arraySize must be rejected, not silently laid out");
+        assertThrows(S7Exception.class, () -> BeanParser.parse(NegativeOffsetBean.class),
+                "negative byteOffset must be rejected");
+        assertThrows(S7Exception.class, () -> BeanParser.parse(NegativeSizeBean.class),
+                "negative size must be rejected");
+    }
+
+    @Test
+    void rejectsRecursiveStructNestingInsteadOfStackOverflow() {
+        final S7Exception direct = assertThrows(S7Exception.class,
+                () -> BeanParser.parse(SelfReferencingBean.class),
+                "a self-referencing STRUCT must fail with a clear error, not a StackOverflowError");
+        assertTrue(direct.getMessage().contains("Recursive STRUCT mapping rejected"),
+                "message should name the cycle: " + direct.getMessage());
+
+        final S7Exception array = assertThrows(S7Exception.class,
+                () -> BeanParser.parse(SelfReferencingArrayBean.class),
+                "a self-referencing STRUCT array must fail with a clear error too");
+        assertTrue(array.getMessage().contains(SelfReferencingArrayBean.class.getName()));
+    }
+
+    @Test
+    void rejectsCoverageThatOverflowsTheBlockSize() {
+        final S7Exception ex = assertThrows(S7Exception.class, () -> BeanParser.parse(OversizedCoverageBean.class),
+                "an entry covering more than Integer.MAX_VALUE bytes must be rejected at parse time");
+        assertTrue(ex.getMessage().contains("exceeds the representable block size"),
+                "message should explain the overflow: " + ex.getMessage());
     }
 
     @Test

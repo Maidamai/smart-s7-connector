@@ -2,6 +2,7 @@ package io.github.maidamai.s7connector.impl;
 
 import io.github.maidamai.s7connector.api.DaveArea;
 import io.github.maidamai.s7connector.exception.S7Exception;
+import io.github.maidamai.s7connector.exception.S7PartialWriteException;
 import io.github.maidamai.s7connector.impl.nodave.Nodave;
 import io.github.maidamai.s7connector.impl.nodave.PDU;
 import io.github.maidamai.s7connector.impl.nodave.PLCinterface;
@@ -12,6 +13,8 @@ import java.io.IOException;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -88,6 +91,53 @@ class S7BaseConnectionWriteContractTest {
                 "fully acknowledged split writes must succeed");
     }
 
+    @Test
+    void transportFailureOnSecondChunkKeepsConfirmedProgress() {
+        // negotiated PDU 240 -> write window 212; a 500-byte write splits into 212+212+76
+        final IOException transportFailure = new IOException("simulated read timeout");
+        final ScriptedWriteConnection nodaveConnection =
+                new ScriptedWriteConnection().failWriteNumberWithIOException(2, transportFailure);
+        final S7BaseConnection connector = testConnector(nodaveConnection, 240);
+
+        final S7PartialWriteException failure = assertThrows(S7PartialWriteException.class,
+                () -> connector.write(DaveArea.DB, 1, 0, new byte[500]),
+                "a transport failure mid-write must surface the confirmed progress");
+
+        assertEquals(212, failure.getConfirmedWrittenBytes(),
+                "the first chunk was acknowledged before the transport failed");
+        assertEquals(212, failure.getFailingChunkOffset(), "the failing chunk is the second one");
+        assertEquals(212, failure.getFailingChunkLength());
+        assertEquals(2, nodaveConnection.messageNumber, "the third chunk must never be executed");
+        assertSame(transportFailure, failure.getCause(), "the original transport failure must be preserved");
+
+        final String message = failure.getMessage();
+        assertTrue(message.contains("confirmedWrittenBytes=212"),
+                "message should carry the confirmed byte count, but was: " + message);
+        assertTrue(message.contains("offset=212"), "message should carry the failing chunk offset, but was: " + message);
+        assertTrue(message.contains("unknown"),
+                "message must state that the failing chunk's outcome is unknown, but was: " + message);
+    }
+
+    @Test
+    void transportFailureOnFirstChunkReportsZeroConfirmedAndUnknownOutcome() {
+        final IOException transportFailure = new IOException("connect reset");
+        final ScriptedWriteConnection nodaveConnection =
+                new ScriptedWriteConnection().failWriteNumberWithIOException(1, transportFailure);
+        final S7BaseConnection connector = testConnector(nodaveConnection, 240);
+
+        final S7PartialWriteException failure = assertThrows(S7PartialWriteException.class,
+                () -> connector.write(DaveArea.DB, 1, 0, new byte[300]));
+
+        assertEquals(0, failure.getConfirmedWrittenBytes(), "no chunk was confirmed yet");
+        assertEquals(0, failure.getFailingChunkOffset());
+        assertEquals(212, failure.getFailingChunkLength());
+        assertEquals(1, nodaveConnection.messageNumber, "only the first chunk was attempted");
+        assertTrue(failure.getMessage().contains("confirmedWrittenBytes=0"));
+        assertTrue(failure.getMessage().contains("may or may not have been written"),
+                "a timeout must not be reported as 'nothing was written': " + failure.getMessage());
+        assertSame(transportFailure, failure.getCause());
+    }
+
     private static S7BaseConnection testConnector(final S7Connection nodaveConnection, final int negotiatedPduLength) {
         return new TestS7BaseConnection(nodaveConnection, negotiatedPduLength);
     }
@@ -110,6 +160,7 @@ class S7BaseConnectionWriteContractTest {
     private static final class ScriptedWriteConnection extends S7Connection {
         private int failingExchangeNumber;
         private int failingStatus;
+        private IOException transportFailure;
 
         private ScriptedWriteConnection() {
             super(new PLCinterface(Nodave.PROTOCOL_ISOTCP));
@@ -127,12 +178,25 @@ class S7BaseConnectionWriteContractTest {
             }
             this.failingExchangeNumber = exchangeNumber;
             this.failingStatus = status;
+            this.transportFailure = null;
+            return this;
+        }
+
+        ScriptedWriteConnection failWriteNumberWithIOException(final int exchangeNumber, final IOException failure) {
+            if (exchangeNumber < 1 || failure == null) {
+                throw new IllegalArgumentException("invalid script: exchange=" + exchangeNumber);
+            }
+            this.failingExchangeNumber = exchangeNumber;
+            this.transportFailure = failure;
             return this;
         }
 
         @Override
         public int exchange(final PDU p1) throws IOException {
             this.messageNumber++;
+            if (this.messageNumber == this.failingExchangeNumber && this.transportFailure != null) {
+                throw this.transportFailure;
+            }
             final byte itemStatus = this.messageNumber == this.failingExchangeNumber
                     ? (byte) this.failingStatus
                     : (byte) 0xFF;

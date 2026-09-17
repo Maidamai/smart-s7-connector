@@ -37,6 +37,28 @@ Larger reads/writes are transparently split into consecutive chunks and
 reassembled. Without PDU negotiation the default window for both is 96 bytes
 (`S7BaseConnection.DEFAULT_MAX_READ_BYTES` / `DEFAULT_MAX_WRITE_BYTES`).
 
+## Address limits
+
+The S7 request item encodes the DB/area number in an unsigned 16-bit field
+and the start address in an unsigned 24-bit field. Ranges that cannot be
+represented are rejected with `IllegalArgumentException` **before any
+request is sent** — the library never silently truncates an address, because
+a truncated address points at a different, valid-looking location:
+
+- **DB/area number** ≤ 65535 (two-byte field).
+- **Byte-addressed areas** (DB, FLAGS, INPUTS, OUTPUTS, …): `offset +
+  length` ≤ 2097152, because the item carries `offset × 8` as a 24-bit bit
+  address.
+- **TIMER/COUNTER reads**: the item carries the address in raw units, so
+  `offset + bytes` ≤ 16777216. TIMER/COUNTER **writes** are encoded as bit
+  addresses like every other write (inherited encoder asymmetry, locked by
+  tests).
+
+These are encodability limits, not device capability limits: whether a
+specific PLC accepts a legal address is a device property. Zero-length
+accesses are bound by the same offset limits (an empty range at an
+unencodable offset is still a caller error and is rejected).
+
 ## Write semantics
 
 - **Full-block overwrite** (`S7Connector.write`,
@@ -48,14 +70,22 @@ reassembled. Without PDU negotiation the default window for both is 96 bytes
   the point's memory range is read, the value is merged, and the range is
   written back, so other bits in the same byte are preserved (within this
   process; see Thread model).
+- **Transport failure mid-write** (timeout, I/O error, interruption): the
+  call fails with `S7PartialWriteException`, an `IOException` subtype that
+  carries `confirmedWrittenBytes` (bytes the PLC acknowledged in earlier
+  chunks), the failing chunk's offset and length, and the original cause.
+  The failing chunk's outcome is **unknown** — no response was received, so
+  it may or may not have been written; a timeout must not be read as
+  "nothing was written". The library does not replay failed writes.
 
 ## Error categories
 
 | Exception | Meaning | Connection state afterwards |
 |---|---|---|
 | `IOException` | Transport failure: connect failure, timeout, I/O error | Transport closed; connector permanently unusable |
+| `S7PartialWriteException` (a checked `IOException` subtype — existing `IOException` handlers keep working) | Transport failure during a write; carries confirmed progress and the failing chunk coordinates | Same as `IOException` |
 | `S7Exception` (unchecked) | The PLC rejected the operation (a read or a write), or the response violated the S7 protocol | Item-level rejections keep the connector usable; frame-level violations (truncated frames, lying lengths, mismatched PDU references) also close the transport |
-| `IllegalArgumentException` | Invalid arguments (null area/buffer, negative numbers, unmappable class) | Unchanged |
+| `IllegalArgumentException` | Invalid arguments (null area/buffer, negative numbers, unmappable class, unencodable address range) | Unchanged |
 
 For a rejected read or write the `S7Exception` message carries these fields:
 
@@ -63,7 +93,9 @@ For a rejected read or write the `S7Exception` message carries these fields:
 - `area`, `db`, `offset`, `length` — the coordinates of the failing chunk
 - `confirmedWrittenBytes` — bytes the PLC already acknowledged in earlier
   chunks of this call (not rolled back). After a timeout, the outcome of the
-  failing chunk itself is unknown.
+  failing chunk itself is unknown. The same applies to frame-level
+  violations on a write (the request was sent, the response was rejected as
+  untrustworthy): the failing chunk's outcome is unknown there too.
 
 ## Response validation rules
 
@@ -90,7 +122,18 @@ result **without** closing the connection.
   `@S7Variable(byteOffset=..., bitOffset=...)`.
 - `STRING` values are ASCII; non-ASCII characters throw an exception instead
   of being silently mangled.
-- BOOL arrays may span byte boundaries.
+- **Array element strides** are computed once at parse time and shared by
+  the covered block size and the per-element read/write offsets:
+  - `STRING`: `size + 2` (capacity plus max/current length header); the
+    capacity must be 0–254 (encodable in the unsigned max-length header
+    byte), otherwise parsing fails with `S7Exception`.
+  - `STRUCT`: the nested bean's block size; every element of a struct array
+    is counted in the coverage.
+  - fixed-width types: `max(byteSize, size)`.
+  - `BOOL`: bit-addressed, element `i` at bit `bitOffset + i` — arrays
+    cross byte boundaries.
+- Negative `byteOffset`/`bitOffset`/`size`/`arraySize` values are rejected
+  at parse time with `S7Exception`.
 - `PointReadPlanner` rejects illegal point sizes with
   `IllegalArgumentException`.
 - `dispense(List<PlcS7PointVariable>)` / `dispensePoints(List)` return one

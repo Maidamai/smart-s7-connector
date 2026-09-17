@@ -18,6 +18,13 @@ import java.nio.charset.StandardCharsets;
  */
 public final class StringConverter implements S7Serializable {
 
+    /**
+     * Maximum encodable S7 STRING capacity: the max-length header byte is
+     * unsigned (so 255 would fit numerically), but the S7 format reserves
+     * 254 as the largest payload capacity.
+     */
+    public static final int MAX_CAPACITY = 254;
+
     private static final int OFFSET_CURRENT_LENGTH = 1;
     private static final int OFFSET_OVERALL_LENGTH = 0;
     private static final int OFFSET_START = 2;
@@ -98,6 +105,10 @@ public final class StringConverter implements S7Serializable {
 
         if (len > size) {
             throw new IllegalArgumentException("String to big: " + len + " > size " + size);
+        }
+        if (size > MAX_CAPACITY) {
+            throw new IllegalArgumentException("S7 STRING capacity " + size + " exceeds the encodable maximum "
+                    + MAX_CAPACITY + " (unsigned max-length header byte)");
         }
 
         buffer[byteOffset + OFFSET_OVERALL_LENGTH] = (byte) size;

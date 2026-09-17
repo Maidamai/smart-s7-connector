@@ -5,7 +5,9 @@ package io.github.maidamai.s7connector.impl;
 import io.github.maidamai.s7connector.api.DaveArea;
 import io.github.maidamai.s7connector.api.S7Connector;
 import io.github.maidamai.s7connector.exception.S7Exception;
+import io.github.maidamai.s7connector.exception.S7PartialWriteException;
 import io.github.maidamai.s7connector.impl.nodave.Nodave;
+import io.github.maidamai.s7connector.impl.nodave.PDU;
 import io.github.maidamai.s7connector.impl.nodave.S7Connection;
 
 import java.io.IOException;
@@ -154,9 +156,7 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
         if (bytes < 0) {
             throw new IllegalArgumentException("bytes must not be negative: " + bytes);
         }
-        if (bytes > 0 && offset > Integer.MAX_VALUE - bytes) {
-            throw new IllegalArgumentException("read range overflows the address space: offset=" + offset + ", bytes=" + bytes);
-        }
+        requireEncodableRange(area, areaNumber, offset, bytes, false);
         final byte[] result = new byte[bytes];
         if (bytes == 0) {
             return result;
@@ -189,17 +189,19 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
         if (buffer == null) {
             throw new IllegalArgumentException("buffer must not be null");
         }
-        if (buffer.length > 0 && offset > Integer.MAX_VALUE - buffer.length) {
-            throw new IllegalArgumentException("write range overflows the address space: offset=" + offset
-                    + ", length=" + buffer.length);
-        }
+        requireEncodableRange(area, areaNumber, offset, buffer.length, true);
         int position = 0;
         int currentOffset = offset;
         while (position < buffer.length) {
             final int chunk = Math.min(buffer.length - position, this.maxWriteBytes);
             final byte[] chunkBuffer = new byte[chunk];
             System.arraycopy(buffer, position, chunkBuffer, 0, chunk);
-            final int ret = this.dc.writeBytes(area, areaNumber, currentOffset, chunk, chunkBuffer);
+            final int ret;
+            try {
+                ret = this.dc.writeBytes(area, areaNumber, currentOffset, chunk, chunkBuffer);
+            } catch (final IOException e) {
+                throw partialWriteFailure(area, areaNumber, currentOffset, chunk, position, e);
+            }
             if (ret != Nodave.RESULT_OK) {
                 throw writeFailure(area, areaNumber, currentOffset, chunk, position, ret);
             }
@@ -217,6 +219,47 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
     private static void requireNonNegative(final String name, final int value) {
         if (value < 0) {
             throw new IllegalArgumentException(name + " must not be negative: " + value);
+        }
+    }
+
+    private static boolean isTimerOrCounterArea(final DaveArea area) {
+        return (area == DaveArea.TIMER) || (area == DaveArea.COUNTER)
+                || (area == DaveArea.TIMER200) || (area == DaveArea.COUNTER200);
+    }
+
+    /**
+     * Validates that the whole accessed range fits the S7 request item
+     * fields before any request is issued. The DB/area number occupies an
+     * unsigned 16-bit field; the start address occupies an unsigned 24-bit
+     * field that carries bit addresses (byte offset &times; 8) for byte
+     * areas and raw units for TIMER/COUNTER reads. Ranges that cannot be
+     * encoded are rejected up front: silently truncating the encoding would
+     * make the PLC target a different, valid-looking location.
+     */
+    private static void requireEncodableRange(final DaveArea area, final int areaNumber,
+            final int offset, final int length, final boolean forWrite) {
+        if (areaNumber > PDU.MAX_ITEM_DB_NUMBER) {
+            throw new IllegalArgumentException("areaNumber " + areaNumber
+                    + " does not fit the unsigned 16-bit DB number field of an S7 request item (max "
+                    + PDU.MAX_ITEM_DB_NUMBER + "); area=" + area.name() + ". The request was not sent.");
+        }
+        // TIMER/COUNTER read items carry the start address in raw units;
+        // every other access encodes a bit address (byte offset * 8), which
+        // halves the byte range three times over.
+        final boolean rawUnits = !forWrite && isTimerOrCounterArea(area);
+        final long maxEnd = rawUnits
+                ? PDU.MAX_ITEM_ADDRESS + 1
+                : (PDU.MAX_ITEM_ADDRESS + 1) / 8;
+        final long end = (long) offset + length;
+        if (end > maxEnd) {
+            throw new IllegalArgumentException("S7 " + (forWrite ? "write" : "read")
+                    + " range is not encodable: the last " + (rawUnits ? "address unit " : "byte ")
+                    + (end - 1) + " exceeds the maximum encodable " + (rawUnits ? "address unit " : "byte offset ")
+                    + (maxEnd - 1)
+                    + (rawUnits ? " (raw 24-bit item address, TIMER/COUNTER read)" : " (24-bit bit address field)")
+                    + "; area=" + area.name() + ", areaNumber=" + areaNumber + ", offset=" + offset
+                    + ", " + (forWrite ? "length" : "bytes") + "=" + length
+                    + ". The request was not sent; truncating the address would target a different, valid-looking location.");
         }
     }
 
@@ -266,6 +309,37 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
             message.append(" (the PLC acknowledged the earlier chunks; they were not rolled back)");
         }
         return new S7Exception(message.toString());
+    }
+
+    /**
+     * Builds the public failure for a transport-level error during a chunked
+     * write (timeout, I/O failure, interruption). Unlike a PLC rejection,
+     * there is no status code and no verdict for the failing chunk: no
+     * response was received, so it may or may not have been written. The
+     * confirmed progress of the earlier chunks and the failing chunk's
+     * coordinates are preserved on {@link S7PartialWriteException}.
+     */
+    private static S7PartialWriteException partialWriteFailure(
+            final DaveArea area,
+            final int areaNumber,
+            final int offset,
+            final int length,
+            final int confirmedWrittenBytes,
+            final IOException cause) {
+        final StringBuilder message = new StringBuilder();
+        message.append("S7 write transport failure (")
+                .append(cause.getClass().getSimpleName())
+                .append("): ").append(cause.getMessage())
+                .append("; area=").append(area.name())
+                .append(", db=").append(areaNumber)
+                .append(", offset=").append(offset)
+                .append(", length=").append(length)
+                .append(", confirmedWrittenBytes=").append(confirmedWrittenBytes)
+                .append(" (the PLC acknowledged the earlier chunks; they were not rolled back")
+                .append("; the outcome of the failing chunk itself is unknown — no response was received,"
+                        + " so it may or may not have been written)");
+        return new S7PartialWriteException(message.toString(), cause,
+                confirmedWrittenBytes, offset, length);
     }
 
 }

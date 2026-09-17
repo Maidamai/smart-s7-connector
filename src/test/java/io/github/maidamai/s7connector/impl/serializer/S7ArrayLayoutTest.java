@@ -198,4 +198,125 @@ class S7ArrayLayoutTest {
         assertTrue(Arrays.equals(bean.counters, readBack.counters), "BYTE array stride must be one byte per element");
         assertEquals(bean.speed, readBack.speed);
     }
+
+    // ------------------------------------------------------------------
+    // STRING arrays: element stride must be capacity + 2 header bytes
+    // ------------------------------------------------------------------
+
+    static class StringArrayBean {
+        @S7Variable(type = S7Type.STRING, byteOffset = 0, size = 10, arraySize = 2)
+        public String[] tags;
+    }
+
+    static class StringArray3WithOffsetAndSentinel {
+        @S7Variable(type = S7Type.STRING, byteOffset = 4, size = 6, arraySize = 3)
+        public String[] tags;
+
+        @S7Variable(type = S7Type.BYTE, byteOffset = 28)
+        public Byte sentinel;
+    }
+
+    @Test
+    void stringArrayPlacesHeadersAtCapacityStride() {
+        final StringArrayBean bean = new StringArrayBean();
+        bean.tags = new String[]{"ONE", "TWOTWO"};
+
+        final byte[] buffer = new byte[24]; // 2 * (10 + 2)
+        S7SerializerImpl.insertBytes(bean, buffer, 0);
+
+        // element headers must sit at 0 and 12 — not at 0 and 2
+        assertEquals(10, buffer[0] & 0xFF, "first max-length header");
+        assertEquals(3, buffer[1] & 0xFF, "first current-length header");
+        assertEquals(10, buffer[12] & 0xFF, "second max-length header must sit after the full first element");
+        assertEquals(6, buffer[13] & 0xFF, "second current-length header");
+
+        // contents must not overlap: first content in 2..11, second in 14..23
+        assertEquals('O', buffer[2]);
+        assertEquals('E', buffer[4]);
+        assertEquals(0, buffer[5], "unused capacity of the first element");
+        assertEquals('T', buffer[14], "second content must start after the first element's capacity");
+        assertEquals('O', buffer[19]);
+        assertEquals(0, buffer[20], "unused capacity of the second element");
+
+        final StringArrayBean readBack = S7SerializerImpl.extractBytes(StringArrayBean.class, buffer, 0);
+        assertArrayEquals(bean.tags, readBack.tags, "both strings must survive the round trip");
+    }
+
+    @Test
+    void stringArrayOfThreeWithOffsetCapacityEdgeAndSentinelRoundTrips() {
+        final StringArray3WithOffsetAndSentinel bean = new StringArray3WithOffsetAndSentinel();
+        // capacity edge: element 0 exactly full; element 1 mixed; element 2 empty
+        bean.tags = new String[]{"ABCDEF", "xy", ""};
+        bean.sentinel = 0x5A;
+
+        final byte[] buffer = new byte[29]; // array 4..27, sentinel at 28
+        java.util.Arrays.fill(buffer, (byte) 0x11);
+        S7SerializerImpl.insertBytes(bean, buffer, 0);
+
+        // three element headers at 4, 12, 20 (stride 6 + 2)
+        assertEquals(6, buffer[4] & 0xFF);
+        assertEquals(6, buffer[5] & 0xFF, "full-capacity element: current == max");
+        assertEquals(6, buffer[12] & 0xFF);
+        assertEquals(2, buffer[13] & 0xFF);
+        assertEquals(6, buffer[20] & 0xFF);
+        assertEquals(0, buffer[21] & 0xFF, "empty element: current == 0");
+
+        assertEquals('A', buffer[6]);
+        assertEquals('F', buffer[11], "last content byte of the full element");
+        assertEquals('x', buffer[14]);
+        assertEquals('y', buffer[15]);
+        assertEquals(0x11, buffer[16], "unused capacity keeps the pre-existing byte");
+        assertEquals((byte) 0x5A, buffer[28], "the trailing sentinel byte must not be touched by the array");
+
+        final StringArray3WithOffsetAndSentinel readBack =
+                S7SerializerImpl.extractBytes(StringArray3WithOffsetAndSentinel.class, buffer, 0);
+        assertArrayEquals(bean.tags, readBack.tags, "all three strings must round trip at the non-zero offset");
+        assertEquals(bean.sentinel, readBack.sentinel);
+    }
+
+    // ------------------------------------------------------------------
+    // STRUCT arrays: element stride must be the nested block size
+    // ------------------------------------------------------------------
+
+    static class StructItemBean {
+        @S7Variable(type = S7Type.INT, byteOffset = 0)
+        public Short x;
+
+        @S7Variable(type = S7Type.BYTE, byteOffset = 2)
+        public Byte y;
+    }
+
+    static class StructArrayBean {
+        @S7Variable(type = S7Type.STRUCT, byteOffset = 0, arraySize = 3)
+        public StructItemBean[] items;
+    }
+
+    @Test
+    void structArrayAdvancesByTheNestedBlockSize() {
+        final StructArrayBean bean = new StructArrayBean();
+        bean.items = new StructItemBean[3];
+        for (int i = 0; i < 3; i++) {
+            bean.items[i] = new StructItemBean();
+            bean.items[i].x = (short) (0x0100 + i);
+            bean.items[i].y = (byte) (0x40 + i);
+        }
+
+        final byte[] buffer = new byte[9]; // 3 * nested block size 3
+        S7SerializerImpl.insertBytes(bean, buffer, 0);
+
+        // each element occupies its own 3-byte slot; the second header must
+        // not fall into the first element's payload
+        for (int i = 0; i < 3; i++) {
+            final int base = i * 3;
+            assertEquals(0x01, buffer[base] & 0xFF, "element " + i + " x high byte");
+            assertEquals(i, buffer[base + 1] & 0xFF, "element " + i + " x low byte");
+            assertEquals(0x40 + i, buffer[base + 2] & 0xFF, "element " + i + " y byte");
+        }
+
+        final StructArrayBean readBack = S7SerializerImpl.extractBytes(StructArrayBean.class, buffer, 0);
+        for (int i = 0; i < 3; i++) {
+            assertEquals(bean.items[i].x, readBack.items[i].x, "element " + i + " must round trip");
+            assertEquals(bean.items[i].y, readBack.items[i].y);
+        }
+    }
 }

@@ -44,6 +44,30 @@ correctness hardening cycle driven by an external static audit of commit
   transport in a defined terminal state (see `docs/api-contract.md`).
 - **Point read planner** rejects invalid point sizes instead of masking them
   with `max(1, size)`.
+- **Unencodable addresses are rejected instead of silently truncated** (2nd
+  audit round, R1). The S7 request item carries the DB number in two bytes
+  and the start address in three bytes; a DB number above 65535 or a byte
+  range above 2097152 used to wrap around onto a *different, valid-looking*
+  target (DB 65537 became DB 1, byte offset 2097152 became 0). Both the
+  public read/write calls (before any request is sent) and the PDU encoders
+  now validate with `long` math; TIMER/COUNTER read raw-unit addressing is
+  locked by tests. See `S7AddressBoundsTest`, `docs/api-contract.md`.
+- **Array element layout is computed once and shared by coverage and
+  offsets** (R2). STRING array elements advance by `size + 2` (capacity plus
+  header) — previously the second element's header landed inside the first
+  element's payload; STRUCT arrays advance by the nested block size and are
+  fully counted in the block size; fixed types use `max(byteSize, size)` on
+  both sides. BOOL bit-crossing behavior is unchanged and regression-tested.
+  STRING capacities above 254 (unencodable max-length byte) and negative
+  annotation values are rejected at parse time, as are layouts whose covered
+  byte count overflows `int` (which would silently shrink the block size)
+  and recursive STRUCT nesting (which used to risk a `StackOverflowError`).
+- **Transport failures during chunked writes keep the confirmed progress**
+  (R3). A timeout or I/O error mid-write now throws
+  `S7PartialWriteException` (an `IOException` subtype) carrying
+  `confirmedWrittenBytes`, the failing chunk's offset/length and the cause,
+  instead of a bare `IOException` with no context. The failing chunk's
+  outcome is explicitly documented as unknown.
 
 ### Added
 
@@ -83,7 +107,14 @@ correctness hardening cycle driven by an external static audit of commit
   JARs ship `META-INF/LICENSE`, `META-INF/NOTICE`,
   `META-INF/LICENSE_LIBNODAVE.txt`, `META-INF/THIRD_PARTY_NOTICES.md`, and
   `META-INF/licenses/LGPL-2.0.txt`. Licensing no longer blocks the first
-  official release. Decision record: `docs/provenance.md` §5.
+  official release. Decision record: `docs/provenance.md` §5. The 2nd audit
+  round (R4) tightened the report wording: upstream comparisons are pinned
+  to `s7connector/s7connector@fcc7662` instead of a rolling master, the
+  actual distribution route (repository source, tagged JARs with source
+  correspondence) is spelled out, and the statements "publishing this
+  repository satisfies the source-offer duty" and "consumers may pick the
+  overall license" were corrected — final distribution obligations should
+  still be confirmed by an experienced open-source compliance reviewer.
 
 ### Known limitations
 

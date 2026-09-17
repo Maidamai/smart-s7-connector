@@ -43,25 +43,39 @@ public final class BeanEntry {
     public S7Serializable serializer;
 
     /**
-     * The Java type
+     * The corresponding Java type
      */
     public Class<?> type;
 
     /**
+     * Distance in bytes between consecutive array elements, computed once at
+     * parse time so that the covered block size and the element read/write
+     * offsets share one layout rule. For STRING it is {@code size + 2}
+     * (capacity plus the max/current length header), for STRUCT the nested
+     * block size, for fixed width types {@code max(byteSize, size)}.
+     * Bit-strided types (BOOL) do not use it and keep 0.
+     */
+    public int elementStride;
+
+    /**
      * Computes the byte offset of the array element with the given index.
      *
-     * The element index advances the position by the element size: for byte
-     * sized types by {@code index * byteSize}, for bit sized types (BOOL) the
-     * absolute bit number {@code bitOffset + index * bitSize} is split into
-     * whole bytes and the remaining bits, so arrays with more than 8 elements
-     * (or a non-zero starting bitOffset) cross byte boundaries correctly.
+     * The element index advances the position by the element stride:
+     * {@link #elementStride} for byte sized types, and — for bit sized types
+     * (BOOL) — the absolute bit number {@code bitOffset + index * bitSize}
+     * split into whole bytes and the remaining bits, so arrays with more
+     * than 8 elements (or a non-zero starting bitOffset) cross byte
+     * boundaries correctly.
      *
      * @param index the array element index (&gt;= 0)
      * @return the byte offset of the element relative to the entry start
      */
     public int getElementByteOffset(final int index) {
-        final int absoluteBit = this.bitOffset + index * this.s7type.getBitSize();
-        return this.byteOffset + absoluteBit / 8 + index * this.s7type.getByteSize();
+        if (this.s7type.getBitSize() > 0) {
+            final int absoluteBit = this.bitOffset + index * this.s7type.getBitSize();
+            return this.byteOffset + absoluteBit / 8;
+        }
+        return this.byteOffset + this.bitOffset / 8 + index * this.elementStride;
     }
 
     /**
