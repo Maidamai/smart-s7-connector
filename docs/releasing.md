@@ -1,16 +1,21 @@
 # Releasing
 
-This project has never published an artifact. The first official release is
-**blocked until the license provenance decision is closed**
-(see `docs/provenance.md`); until then nothing in this page may be executed.
+This project has never published an artifact. The license provenance
+decision was closed on 2026-09-17 (split per-file licensing,
+`docs/provenance.md` §5); the license-side release gate is lifted and the
+flow below may be executed once the remaining preconditions are met.
 
 The whole flow below is a maintainer-only, manual operation. No credentials
 belong in this repository, in CI logs, or in issue tickets.
 
 ## Preconditions (all mandatory)
 
-1. License provenance closed and documented in `docs/provenance.md`, with
-   `pom.xml`/README license statements aligned to the decision.
+1. License declarations match `docs/provenance.md` §5: two `<license>`
+   entries in `pom.xml`, and the built main/sources JARs contain
+   `META-INF/LICENSE`, `META-INF/NOTICE`,
+   `META-INF/LICENSE_LIBNODAVE.txt`, `META-INF/THIRD_PARTY_NOTICES.md`,
+   and `META-INF/licenses/LGPL-2.0.txt` (verify by unpacking before
+   publishing).
 2. `./mvnw -B -ntp clean verify` green on the release commit; CI green on the
    same commit for the full JDK matrix.
 3. `CHANGELOG.md` updated with the release version and date.
@@ -76,4 +81,5 @@ local build. If this fails, the release is not done.
   workflows.
 - Never override or roll back an already-synced Central version; a broken
   release is fixed by a new patch version.
-- Never publish while the license provenance decision is open.
+- Never publish with license files missing from the artifacts; the
+  META-INF checklist in precondition 1 is part of every release.

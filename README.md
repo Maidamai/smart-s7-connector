@@ -303,9 +303,17 @@ mvn -Pplc-live-it verify -Dplc.host=192.168.0.10 -Dplc.allowWrites=true -Dplc.al
     └── test/java/io/github/maidamai/s7connector
 ```
 
-## 许可证与来源（待结案）
+## 许可证与来源
 
-仓库根 `LICENSE` 与 pom 声明为 Apache License 2.0；但 `src/main/java/io/github/maidamai/s7connector/impl/nodave/` 下 7 个文件保留 libnodave 的 LGPL-2.0-or-later 头部（源自上游 s7connector 的继承，非本项目引入）。**最终授权范围待维护者确认**，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 与 [docs/provenance.md](docs/provenance.md)。在授权范围确认之前，本项目不发布正式制品（no Maven Central / release artifacts）。
+本仓库采用分文件混合许可（2026-09-17 结案，决策记录见 [docs/provenance.md](docs/provenance.md) 第 5 节）：
+
+- 除下列文件外的全部源码为 **Apache License 2.0**（本项目原创 + 源自上游 [s7connector](https://github.com/s7connector/s7connector) 的 Apache-2.0 部分）；
+- `src/main/java/io/github/maidamai/s7connector/impl/nodave/` 下 7 个文件为 **LGPL-2.0-or-later**（源自 libnodave，Thomas Hergenhahn 2005，经 s7connector Java 移植继承，头部原样保留）。
+
+这不是"任选其一"的双许可：使用者不能将整个制品按纯 Apache-2.0 使用。当某次分发需要单一整体许可时，
+可依 LGPL "or any later version" 条款升级为 LGPL-3.0-or-later（Apache-2.0 代码可单向并入 LGPL-3.0 作品）。
+发布制品（主 JAR 与 sources JAR）的 `META-INF/` 携带两份许可全文、`NOTICE` 与 `THIRD_PARTY_NOTICES.md`。
+逐文件溯源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 与 [docs/provenance.md](docs/provenance.md)。
 
 本项目基于 [s7connector](https://github.com/s7connector/s7connector) 演进；仓库中保留 `NOTICE` 和 `LICENSE_LIBNODAVE.txt` 用于上游来源说明。
 

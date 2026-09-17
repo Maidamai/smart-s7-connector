@@ -55,8 +55,7 @@ correctness hardening cycle driven by an external static audit of commit
   rejection, raw frame injection, and per-request PDU length recording.
 - File-level license provenance: full LGPL-2.0 text, third-party notices,
   and per-file provenance analysis (`LICENSES/`, `THIRD_PARTY_NOTICES.md`,
-  `docs/provenance.md`, updated `NOTICE`). No license decision is changed;
-  official publication stays paused until the maintainer closes it.
+  `docs/provenance.md`, updated `NOTICE`).
 - Maven Wrapper (3.9.11, checksum-pinned), GitHub Actions CI
   (JDK 8/17/21, SHA-pinned actions, read-only permissions), Dependabot.
 - Community files (`CONTRIBUTING.md`, `SECURITY.md`, issue/PR templates),
@@ -75,6 +74,17 @@ correctness hardening cycle driven by an external static audit of commit
 - Protocol responses are attributed to their request via PDU sequence
   numbers; ambiguous streams are closed.
 
+### Changed
+
+- **License provenance closed (2026-09-17) as split per-file licensing.**
+  `impl/nodave/**` (7 libnodave-derived files) stay LGPL-2.0-or-later with
+  their headers retained; every other source file stays Apache-2.0. The pom
+  now declares both licenses with scope comments, and the main and sources
+  JARs ship `META-INF/LICENSE`, `META-INF/NOTICE`,
+  `META-INF/LICENSE_LIBNODAVE.txt`, `META-INF/THIRD_PARTY_NOTICES.md`, and
+  `META-INF/licenses/LGPL-2.0.txt`. Licensing no longer blocks the first
+  official release. Decision record: `docs/provenance.md` §5.
+
 ### Known limitations
 
 - Live-PLC behavior is verified against local loopback fixtures only; real
@@ -83,5 +93,5 @@ correctness hardening cycle driven by an external static audit of commit
 - `DWORD`/`DINT` remain signed-long interpretations (documented contract).
 - No automatic reconnection or write replay by design; connections are
   single-use after any failure (documented in `docs/api-contract.md`).
-- The license provenance decision is open; until closed, no official
-  artifacts are published.
+- The whole artifact may not be used under Apache-2.0 alone (7 nodave files
+  are LGPL-2.0-or-later); see the License section of the README.

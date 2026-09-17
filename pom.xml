@@ -8,19 +8,29 @@
     <artifactId>smart-s7-connector</artifactId>
     <groupId>io.github.maidamai</groupId>
     <packaging>jar</packaging>
-    <!-- 1.0.0-SNAPSHOT: no artifact has ever been published; the first
-         official release must be cut as 1.0.0 only after the license
-         provenance decision (docs/provenance.md) is closed. -->
+    <!-- 1.0.0-SNAPSHOT: no artifact has ever been published. The license
+         provenance decision (docs/provenance.md) was closed on 2026-09-17
+         as split per-file licensing; the release gate it held is lifted. -->
     <version>1.0.0-SNAPSHOT</version>
     <name>smart-s7-connector</name>
     <description>Lightweight Siemens S7 PLC communication library for Java.</description>
     <url>https://github.com/Maidamai/smart-s7-connector</url>
 
     <licenses>
+        <!-- Split per-file licensing, decided 2026-09-17 (docs/provenance.md §5).
+             The two entries describe scopes, not an either/or choice: a
+             consumer may not use the whole artifact under Apache-2.0 alone. -->
         <license>
             <name>Apache License, Version 2.0</name>
             <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
             <distribution>repo</distribution>
+            <comments>Applies to every source file of this artifact except io/github/maidamai/s7connector/impl/nodave/**, i.e. the original smart-s7-connector code plus the Apache-2.0-licensed parts inherited from s7connector.</comments>
+        </license>
+        <license>
+            <name>GNU Library General Public License v2.0 or later</name>
+            <url>https://www.gnu.org/licenses/old-licenses/lgpl-2.0.txt</url>
+            <distribution>repo</distribution>
+            <comments>Applies to io/github/maidamai/s7connector/impl/nodave/** (7 files derived from libnodave, Copyright Thomas Hergenhahn 2005, via the s7connector Java port). Their "or any later version" grant allows a combined distribution to elect LGPL-3.0-or-later, which is one-way compatible with the Apache-2.0 parts. See LICENSES/LGPL-2.0.txt and THIRD_PARTY_NOTICES.md.</comments>
         </license>
     </licenses>
 
@@ -95,6 +105,33 @@
     </dependencies>
 
     <build>
+        <!-- Ship the applicable license texts and notices inside the
+             artifacts (T09): Apache-2.0 for the project code, LGPL-2.0 for
+             the libnodave-derived nodave files. These land in the main JAR
+             via target/classes and maven-source-plugin 3.3.1 carries the
+             same resources into the sources JAR (verified 2026-09-17). -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>${project.basedir}</directory>
+                <targetPath>META-INF</targetPath>
+                <includes>
+                    <include>LICENSE</include>
+                    <include>NOTICE</include>
+                    <include>LICENSE_LIBNODAVE.txt</include>
+                    <include>THIRD_PARTY_NOTICES.md</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/LICENSES</directory>
+                <targetPath>META-INF/licenses</targetPath>
+                <includes>
+                    <include>LGPL-2.0.txt</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

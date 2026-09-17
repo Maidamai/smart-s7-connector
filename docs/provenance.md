@@ -1,8 +1,8 @@
 # smart-s7-connector 代码溯源与许可证冲突报告（T09）
 
-日期：2026-09-16 · 分支：oss-hardening · 状态：**未结案**
+日期：2026-09-16 · 分支：oss-hardening · 状态：**已结案（2026-09-17，维护者确认，见第 5 节决策记录）**
 
-本报告为审计任务书 T09 的产出，纯事实梳理与风险分析，**不构成法律意见**；最终授权范围由维护者确认。
+本报告为审计任务书 T09 的产出，纯事实梳理与风险分析，**不构成法律意见**；最终授权范围已由维护者于 2026-09-17 确认（见第 5 节决策记录）。
 
 ## 1. 背景
 
@@ -61,19 +61,35 @@
 - 本冲突继承自上游 s7connector（其 master 分支同样如此，见第 2 节核查），非本项目引入，但本项目继承了相应的合规风险。
 - 再次强调：以上为事实与技术性梳理，不构成法律意见。
 
-## 5. 维护者待决问题清单
+## 5. 决策记录（2026-09-17 结案）
 
-**(a) 是否联系 Thomas Hergenhahn 获取再许可授权 / 确认 dual-license**
-- 若选是：通过 thomas.hergenhahn@web.de 或 SourceForge 渠道联系，请求以 Apache-2.0 或更宽许可再授权 nodave 移植代码；取得书面（邮件即可）确认后，更新本报告与 THIRD_PARTY_NOTICES.md，结案。
-- 若选否/无回音：按 (b) 处理。
+维护者于 2026-09-17 确认采用**分文件混合许可**（即原 (b)+(c) 组合），不再作为发布阻断项：
 
-**(b) 是否将整个制品按 LGPL-2.0+ 分发**
-- 若选是（最稳妥）：修改根 `LICENSE`/`pom.xml` 为 LGPL-2.0-or-later（或采用 "LGPL-2.0+ 对应 nodave 部分、其余 Apache-2.0" 的分文件声明），保留全部 LGPL 头部，随制品分发 `LICENSES/LGPL-2.0.txt`，README 标注。注意 Apache-2.0 部分义务仍须履行。
-- 若选否：维持 Apache-2.0 总声明但必须完成 (a)，否则正式发布风险未消除。
+**(a) 是否联系 Thomas Hergenhahn 获取再许可授权** — 决定：暂不作为前置条件。
+如后续希望获得纯 Apache-2.0 制品，仍可通过 thomas.hergenhahn@web.de 或 SourceForge 渠道寻求书面再授权；
+取得后重写 `impl/nodave/` 的许可声明并更新本报告即可。该选项保留为后续改进，不阻断当前发布。
 
-**(c) 混合分发时 NOTICE / 文档写法**
-- 若混合：NOTICE 中分别声明两部分来源与许可（本次已在 NOTICE 追加相应行）；发布制品同时携带 Apache-2.0 文本、LGPL-2.0 文本（LICENSES/）与 THIRD_PARTY_NOTICES.md；pom 可用多个 `<license>` 条目或改用分模块拆分。
+**(b) 分发方式** — 决定：按文件划分。
+- `src/main/java/io/github/maidamai/s7connector/impl/nodave/**`（7 个文件）：**LGPL-2.0-or-later**，
+  原始版权与许可头部全部保留，任何修改版继续按 LGPL 提供（本仓库源码公开即满足源码提供义务）。
+- 其余全部源文件（本项目原创 + 源自 s7connector 的 Apache-2.0 部分）：**Apache-2.0**，继续履行
+  LICENSE/NOTICE 义务。
+- 关于第 4 节 FSF 单向兼容性问题：nodave 头部授权为 "version 2, **or (at your option) any later
+  version**"，因此当某次分发需要单一整体许可时，可依该条款将 LGPL 部分升级为 LGPL-3.0-or-later；
+  Apache-2.0 代码可单向并入 LGPL-3.0 作品（FSF 兼容性矩阵），组合分发存在合规路径。
+  使用方若对整体许可有严格要求，按上述口径自行选择即可。
 
-## 6. 结论（未结案）
+**(c) 混合分发的声明与制品** — 已落实：
+- `pom.xml` `<licenses>` 声明两条（Apache-2.0 + LGPL-2.0-or-later），`<comments>` 注明各自适用范围，
+  并明示这不是"任选其一"的双许可。
+- `NOTICE` / `THIRD_PARTY_NOTICES.md` 分别声明两部分来源与许可（NOTICE 追加文本已于 2026-09-16 写入）。
+- 主 JAR 与 sources JAR 的 `META-INF/` 携带 `LICENSE`、`NOTICE`、`LICENSE_LIBNODAVE.txt`、
+  `THIRD_PARTY_NOTICES.md` 与 `licenses/LGPL-2.0.txt`（构建配置见 `pom.xml` `<resources>`，
+  已于 2026-09-17 实际构建核验）。
+- README 中英文小节更新为结案口径，不再声明"授权范围待确认"。
 
-在维护者就第 5 节问题作出决定并落实之前，**正式发布保持暂停**（与本审计其余项结论一致）。本报告与 THIRD_PARTY_NOTICES.md、LICENSES/LGPL-2.0.txt 构成决策所需的事实基础。
+## 6. 结论（已结案）
+
+T09 就此结案：文件级来源清单见第 3 节，上游查证见第 2 节，授权范围按第 5 节决策执行，
+制品声明与许可全文随件分发。许可证不再是正式发布的阻断项；后续发布按 `docs/releasing.md`
+的常规检查执行。本报告为事实梳理与决策记录，不构成法律意见。

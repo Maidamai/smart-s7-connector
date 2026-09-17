@@ -37,6 +37,9 @@
 
 ## 许可证兼容性提示
 
-本仓库根 `LICENSE` 与 `pom.xml` 目前声明 Apache-2.0，但上述 nodave 文件为 LGPL-2.0+。
-二者组合分发存在已知的许可证兼容性问题，最终授权范围须由维护者确认（见 docs/provenance.md 第 4、5 节）。
+本仓库采用分文件混合许可（2026-09-17 维护者确认，决策记录见 docs/provenance.md 第 5 节）：
+`impl/nodave/` 下 7 个文件为 LGPL-2.0-or-later（头部保留），其余源文件为 Apache-2.0。
+`pom.xml` 声明两条许可并注明各自范围；制品 `META-INF/` 同时携带两份许可全文与本声明文件。
+当某次分发需要单一整体许可时，可依 nodave 头部的 "or any later version" 条款升级为
+LGPL-3.0-or-later（Apache-2.0 代码可单向并入 LGPL-3.0 作品）。
 本文件仅为事实性来源声明，不构成法律意见。

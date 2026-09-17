@@ -306,11 +306,16 @@ Safety rules: `plc.host` alone never authorizes writes. Write tests validate `pl
     └── test/java/io/github/maidamai/s7connector
 ```
 
-## License and Attribution (unresolved)
+## License and Attribution
 
-The repository root `LICENSE` and the pom declare Apache License 2.0; however, 7 files under `src/main/java/io/github/maidamai/s7connector/impl/nodave/` retain libnodave's LGPL-2.0-or-later headers (inherited from upstream s7connector, not introduced by this project). **The final licensing scope is pending maintainer confirmation** — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [docs/provenance.md](docs/provenance.md). Until the scope is confirmed, this project does not publish official artifacts (no Maven Central / release artifacts).
+This repository uses split per-file licensing (closed 2026-09-17; decision record in [docs/provenance.md](docs/provenance.md) §5):
 
-This project is based on [s7connector](https://github.com/s7connector/s7connector); `NOTICE` and `LICENSE_LIBNODAVE.txt` are kept for upstream attribution.
+- All source files except the ones below are **Apache License 2.0** (original smart-s7-connector code plus the Apache-2.0-licensed parts inherited from upstream [s7connector](https://github.com/s7connector/s7connector));
+- The 7 files under `src/main/java/io/github/maidamai/s7connector/impl/nodave/` are **LGPL-2.0-or-later** (derived from libnodave, Thomas Hergenhahn 2005, inherited via the s7connector Java port; original headers retained).
+
+This is not an either/or dual license: the artifact as a whole may not be used under Apache-2.0 alone. Where a single license for a combined distribution is required, the LGPL "or any later version" grant allows electing LGPL-3.0-or-later (Apache-2.0 code is one-way compatible into LGPL-3.0 works). Published artifacts (main JAR and sources JAR) ship both license texts, the `NOTICE`, and `THIRD_PARTY_NOTICES.md` under `META-INF/`.
+
+This project is based on [s7connector](https://github.com/s7connector/s7connector); `NOTICE` and `LICENSE_LIBNODAVE.txt` are kept for upstream attribution. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for per-file provenance.
 
 ## Contributing
 
