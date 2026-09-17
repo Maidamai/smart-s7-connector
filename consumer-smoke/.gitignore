@@ -1,0 +1,6 @@
+target/
+downloads/
+isolated-repo/
+isolated-repo-snapshot/
+gnupg/
+*.log

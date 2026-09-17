@@ -84,7 +84,13 @@ public final class S7SerializerImpl implements S7Serializer {
             for (final BeanEntry entry : result.entries) {
                 Object value = null;
                 if (entry.isArray) {
-                    value = Array.newInstance(entry.type, entry.arraySize);
+                    // Allocate with the component type the field declares, so
+                    // primitive arrays stay primitive: the converter still
+                    // produces the wrapper (entry.type) and Array.set unboxes
+                    // it into the primitive component. This also covers the
+                    // former byte[] special case (issue #45): a byte[] field
+                    // is filled directly, Byte[] fields keep working.
+                    value = Array.newInstance(entry.field.getType().getComponentType(), entry.arraySize);
                     for (int i = 0; i < entry.arraySize; i++) {
                         // Element position = entry start + element size * index;
                         // BOOL elements advance bit by bit and cross byte
@@ -96,17 +102,6 @@ public final class S7SerializerImpl implements S7Serializer {
                     }
                 } else {
                     value = entry.serializer.extract(entry.type, buffer, entry.byteOffset + byteOffset, entry.bitOffset);
-                }
-
-                if (entry.field.getType() == byte[].class) {
-                    //Special case issue #45
-                    Byte[] oldValue = (Byte[]) value;
-
-                    value = new byte[oldValue.length];
-
-                    for (int i = 0; i < oldValue.length; i++) {
-                        ((byte[]) value)[i] = oldValue[i];
-                    }
                 }
 
                 entry.field.set(obj, value);

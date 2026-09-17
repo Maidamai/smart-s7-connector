@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <!-- Standalone consumer smoke project for io.github.maidamai:smart-s7-connector.
+         It is NOT a module of the library build. Run it through verify-release.sh,
+         which installs an actually published Release JAR (plus its POM) into an
+         isolated local repository first; see README.md. -->
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>io.github.maidamai.smoke</groupId>
+    <artifactId>consumer-smoke</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>smart-s7-connector consumer smoke</name>
+    <description>Consumes a published smart-s7-connector Release artifact through the public API against an in-memory connector.</description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- The library version under test; override with -Ds7.version=... .
+             verify-release.sh passes the version it installed from the Release. -->
+        <s7.version>1.0.0-rc.1</s7.version>
+        <junit.jupiter.version>5.14.2</junit.jupiter.version>
+        <maven.surefire.version>3.5.4</maven.surefire.version>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.maidamai</groupId>
+            <artifactId>smart-s7-connector</artifactId>
+            <version>${s7.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.17</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${maven.surefire.version}</version>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>jdk9plus-release</id>
+            <activation>
+                <jdk>[9,)</jdk>
+            </activation>
+            <properties>
+                <maven.compiler.release>8</maven.compiler.release>
+            </properties>
+        </profile>
+    </profiles>
+
+</project>

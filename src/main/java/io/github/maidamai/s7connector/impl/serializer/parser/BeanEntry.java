@@ -72,8 +72,11 @@ public final class BeanEntry {
      */
     public int getElementByteOffset(final int index) {
         if (this.s7type.getBitSize() > 0) {
-            final int absoluteBit = this.bitOffset + index * this.s7type.getBitSize();
-            return this.byteOffset + absoluteBit / 8;
+            // long math: an extreme bitOffset + index must not wrap int into
+            // a negative buffer index (parse-time bounds keep the result <=
+            // Integer.MAX_VALUE once computed in long)
+            final long absoluteBit = (long) this.bitOffset + (long) index * this.s7type.getBitSize();
+            return this.byteOffset + (int) (absoluteBit / 8);
         }
         return this.byteOffset + this.bitOffset / 8 + index * this.elementStride;
     }
@@ -85,6 +88,7 @@ public final class BeanEntry {
      * @return the bit offset within the byte returned by {@link #getElementByteOffset(int)}
      */
     public int getElementBitOffset(final int index) {
-        return (this.bitOffset + index * this.s7type.getBitSize()) % 8;
+        final long absoluteBit = (long) this.bitOffset + (long) index * this.s7type.getBitSize();
+        return (int) (absoluteBit % 8);
     }
 }

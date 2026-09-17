@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.Date;
 import java.util.IdentityHashMap;
 import java.util.Set;
 
@@ -134,6 +135,13 @@ public final class BeanParser {
                 requireNonNegative("arraySize", entry.arraySize, field);
                 requireNonNegative("size", entry.size, field);
 
+                // An array field must map element by element onto a component
+                // type the S7 type actually produces, otherwise every
+                // extract/insert of that field would fail at runtime.
+                if (entry.isArray) {
+                    requireCompatibleArrayComponent(entry);
+                }
+
                 // Create new serializer
                 final S7Serializable s = entry.s7type.getSerializer().newInstance();
                 entry.serializer = s;
@@ -142,6 +150,12 @@ public final class BeanParser {
                 // field declaration order: blockSize = max(byteOffset + coverage)
                 final int coverage = entryCoverageInBytes(entry, visiting);
                 final long endOffset = (long) entry.byteOffset + coverage;
+                if (endOffset > Integer.MAX_VALUE) {
+                    throw new S7Exception("@" + S7Variable.class.getSimpleName() + " layout of field "
+                            + entry.field.getName() + " ends at byteOffset " + entry.byteOffset
+                            + " + coverage " + coverage + " = " + endOffset
+                            + ", which exceeds the representable block size of " + Integer.MAX_VALUE);
+                }
                 if (endOffset > res.blockSize) {
                     res.blockSize = (int) endOffset;
                 }
@@ -244,6 +258,80 @@ public final class BeanParser {
             throw new S7Exception("@" + S7Variable.class.getSimpleName() + " " + name + " must not be negative: "
                     + value + " (field " + field.getName() + " of " + field.getDeclaringClass().getName() + ")");
         }
+    }
+
+    /**
+     * Rejects array fields whose declared component type cannot carry the
+     * values the type's converter extracts and inserts: each S7 type maps
+     * element by element onto one natural Java type, usable as the primitive
+     * or the matching wrapper. Anything else would only blow up at runtime
+     * with a wrapped ClassCastException/IllegalArgumentException.
+     */
+    private static void requireCompatibleArrayComponent(final BeanEntry entry) {
+        final Class<?>[] accepted = acceptedArrayComponentTypes(entry.s7type);
+        if (accepted == null) {
+            // STRUCT (and anything without a fixed mapping): the component
+            // type is the nested bean class itself, nothing to check against.
+            return;
+        }
+        // entry.type is the wrapper of the declared component type, so one
+        // comparison covers primitive and wrapper declarations alike.
+        for (final Class<?> candidate : accepted) {
+            if (entry.type == candidate) {
+                return;
+            }
+        }
+        throw new S7Exception("@" + S7Variable.class.getSimpleName() + " array field "
+                + entry.field.getName() + " of " + entry.field.getDeclaringClass().getName()
+                + " declares component type " + entry.field.getType().getComponentType().getName()
+                + ", which is not one of the component types " + entry.s7type
+                + " maps to (" + joinClassNames(accepted) + ")");
+    }
+
+    /**
+     * Returns the wrapper classes an array field of the given S7 type may
+     * declare as its component type. The sets follow what the converters
+     * actually extract and insert (e.g. WORD produces Integers, DINT and
+     * DWORD produce sign-extended Longs), not the intuitive S7 naming.
+     * Returns {@code null} when there is no fixed Java mapping.
+     */
+    private static Class<?>[] acceptedArrayComponentTypes(final S7Type s7type) {
+        switch (s7type) {
+            case BOOL:
+                return new Class<?>[]{Boolean.class};
+            case BYTE:
+                return new Class<?>[]{Byte.class};
+            case INT:
+                return new Class<?>[]{Short.class};
+            case WORD:
+                return new Class<?>[]{Integer.class};
+            case DINT:
+            case DWORD:
+            case TIME:
+                return new Class<?>[]{Long.class};
+            case REAL:
+                // RealConverter extracts a Float and a Double on request,
+                // and inserts both through Float.parseFloat(toString()).
+                return new Class<?>[]{Float.class, Double.class};
+            case STRING:
+                return new Class<?>[]{String.class};
+            case DATE:
+            case DATE_AND_TIME:
+                return new Class<?>[]{Date.class};
+            default:
+                return null;
+        }
+    }
+
+    private static String joinClassNames(final Class<?>[] classes) {
+        final StringBuilder names = new StringBuilder();
+        for (int i = 0; i < classes.length; i++) {
+            if (i > 0) {
+                names.append(", ");
+            }
+            names.append(classes[i].getName());
+        }
+        return names.toString();
     }
 
     /**

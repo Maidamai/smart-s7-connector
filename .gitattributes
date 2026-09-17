@@ -1,0 +1,2 @@
+# Shell scripts must stay LF: CRLF checkout breaks bash (shebang/parse errors)
+*.sh text eol=lf

@@ -1,20 +1,23 @@
 # 实机 PLC 只读/授权写验证尝试记录（2026-09-17）
 
-日期：2026-09-17 · 执行环境：维护者开发机（Windows 10，物理网卡 192.168.1.15/24）
+> 注：2026-09-17 第三轮审计后，本文中的原始内网地址已替换为占位符；原始排错细节保留在维护者本地非公开记录中。
+
+日期：2026-09-17 · 执行环境：维护者开发机（Windows 10，物理网卡 <HOST>/24）
 
 ## 结论（先说结果）
 
-**本轮未获得任何实机验证证据。** 局域网内发现两个 TCP/102 开放候选，但均无法完成
-iso-on-tcp（COTP）连接握手，确认均非可用的 S7 服务端。Tier 2（只读）与 Tier 3（授权写）
+**本轮未获得任何实机验证证据。** 局域网内发现两个 TCP/102 开放候选，但在本组
+连接参数（rack/slot/超时）与本环境下均未能完成 iso-on-tcp（COTP）连接握手。
+Tier 2（只读）与 Tier 3（授权写）
 **未执行成功**，[docs/compatibility.md](../compatibility.md) 全部实机行维持
 "未验证 / Not verified" 不变——失败或无响应的尝试不构成验证证据。
 
 ## 1. 设备发现（方法与结果）
 
-- 方法：对本机所在物理网段 192.168.1.0/24 做 TCP/102（ISO-on-TCP/S7 惯用端口）单端口
-  定向探测（每主机 0.4s 超时）。本机其余 172.18.x/172.27.x 为虚拟网卡、198.18.x 为
+- 方法：对本机所在物理网段 <SUBNET>/24 做 TCP/102（ISO-on-TCP/S7 惯用端口）单端口
+  定向探测（每主机 0.4s 超时）。本机其余 <VNIC-1>.x/<VNIC-2>.x 为虚拟网卡、<PROXY-FAKEIP>.x 为
   代理 fake-IP 段，均已排除，未探测。
-- 结果：两个候选开放 TCP/102——`192.168.1.4` 与 `192.168.1.239`。
+- 结果：两个候选开放 TCP/102——`DEVICE-A` 与 `DEVICE-B`。
 
 ## 2. 连接尝试（全部失败，保留原始参数）
 
@@ -23,20 +26,21 @@ iso-on-tcp（COTP）连接握手，确认均非可用的 S7 服务端。Tier 2�
 
 | # | 目标 | rack/slot | 超时 | 结果 |
 |---|---|---|---|---|
-| 1 | 192.168.1.4 | 0/2 | 3000ms | TCP 建立；COTP 连接请求（22 字节）发出后无应答，`readTimeout` |
-| 2 | 192.168.1.239 | 0/2 | 5000ms | TCP 建立；同样 `readTimeout`，无 COTP 应答 |
-| 3 | 192.168.1.4 | 0/1 | 10000ms | TCP 建立；约 5.3s 后传输层 `read` 失败（对端无有效 ISO 响应） |
-| 4 | 192.168.1.239 | 0/1 | 10000ms | TCP 建立；约 5.3s 后传输层 `read` 失败 |
+| 1 | DEVICE-A | 0/2 | 3000ms | TCP 建立；COTP 连接请求（22 字节）发出后无应答，`readTimeout` |
+| 2 | DEVICE-B | 0/2 | 5000ms | TCP 建立；同样 `readTimeout`，无 COTP 应答 |
+| 3 | DEVICE-A | 0/1 | 10000ms | TCP 建立；约 5.3s 后传输层 `read` 失败（对端无有效 ISO 响应） |
+| 4 | DEVICE-B | 0/1 | 10000ms | TCP 建立；约 5.3s 后传输层 `read` 失败 |
 
 失败点一致：`S7TCPConnection.setupSocket` → `TCPConnection.connectPLC` →
 `sendISOPacket` 的 ISO 连接请求阶段（尚未进入 S7 PDU 层，未触及 PLC 数据）。
-判定：两台设备虽然开放 102 端口，但都不以 iso-on-tcp/S7 方式应答（可能是其他
-协议复用该端口，或策略性丢弃），不是可用的 S7 实机。
+判定：两个端点均开放 TCP/102，但在本组连接参数（rack/slot/超时）与本环境下
+均未能完成 iso-on-tcp（COTP）握手。握手失败不能证明端点不是 S7 设备——
+端点身份、访问策略、连接参数均未被排除；同样不能证明整个网段没有 S7 设备。
 
 复现命令（对任一候选）：
 
 ```bash
-./mvnw -B -ntp -Pplc-live-it verify -Dplc.host=192.168.1.4 -Dplc.port=102 \
+./mvnw -B -ntp -Pplc-live-it verify -Dplc.host=DEVICE-A -Dplc.port=102 \
     -Dplc.rack=0 -Dplc.slot=2 -Dplc.timeoutMillis=3000
 ```
 

@@ -132,8 +132,20 @@ result **without** closing the connection.
   - fixed-width types: `max(byteSize, size)`.
   - `BOOL`: bit-addressed, element `i` at bit `bitOffset + i` — arrays
     cross byte boundaries.
+- **Array component types**: every S7 type maps element by element onto one
+  natural Java type, and an array field may declare it as the primitive or
+  the matching wrapper: `BOOL`→`boolean`/`Boolean`, `BYTE`→`byte`/`Byte`,
+  `INT`→`short`/`Short`, `WORD`→`int`/`Integer`,
+  `DINT`/`DWORD`/`TIME`→`long`/`Long`, `REAL`→`float`/`Float` or
+  `double`/`Double`, `STRING`→`String`, `DATE`/`DATE_AND_TIME`→`Date`;
+  `STRUCT` arrays take the nested bean class as component type. An array
+  field declaring any other component type is rejected at parse time with
+  `S7Exception`.
 - Negative `byteOffset`/`bitOffset`/`size`/`arraySize` values are rejected
   at parse time with `S7Exception`.
+- A layout whose overall end offset (`byteOffset` + covered bytes) exceeds
+  `Integer.MAX_VALUE` is rejected at parse time with `S7Exception` instead
+  of wrapping around to a negative block size.
 - `PointReadPlanner` rejects illegal point sizes with
   `IllegalArgumentException`.
 - `dispense(List<PlcS7PointVariable>)` / `dispensePoints(List)` return one
