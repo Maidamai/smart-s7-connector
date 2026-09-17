@@ -4,3 +4,4 @@ isolated-repo/
 isolated-repo-snapshot/
 gnupg/
 *.log
+__pycache__/
