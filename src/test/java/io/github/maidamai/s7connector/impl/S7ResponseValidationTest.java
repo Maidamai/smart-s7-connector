@@ -152,9 +152,12 @@ class S7ResponseValidationTest {
         try (LocalLoopback loopback = LocalLoopback.open()) {
             loopback.server.queueRawResponse(readResponseWithoutData(), true);
 
-            assertThrows(Exception.class,
+            final S7Exception failure = assertThrows(S7Exception.class,
                     () -> loopback.connector.read(DaveArea.DB, DB_NUMBER, 16, 0),
                     "a read response with dlen=0 must fail cleanly, not trust stale bytes");
+            assertTrue(failure.getMessage().contains("status=-123"),
+                    "the failure should be a cannot-evaluate result, not an accidental crash, but was: "
+                            + failure.getMessage());
         }
     }
 

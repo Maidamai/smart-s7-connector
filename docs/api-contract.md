@@ -53,8 +53,8 @@ reassembled. Without PDU negotiation the default window for both is 96 bytes
 
 | Exception | Meaning | Connection state afterwards |
 |---|---|---|
-| `IOException` | Transport failure: connect failure, timeout, I/O error, or an S7-protocol-violating response | Transport closed; connector permanently unusable |
-| `S7Exception` | The PLC rejected the operation (a read or a write), or a parsed response is invalid | Connector remains usable unless the failure also closed the transport |
+| `IOException` | Transport failure: connect failure, timeout, I/O error | Transport closed; connector permanently unusable |
+| `S7Exception` (unchecked) | The PLC rejected the operation (a read or a write), or the response violated the S7 protocol | Item-level rejections keep the connector usable; frame-level violations (truncated frames, lying lengths, mismatched PDU references) also close the transport |
 | `IllegalArgumentException` | Invalid arguments (null area/buffer, negative numbers, unmappable class) | Unchanged |
 
 For a rejected read or write the `S7Exception` message carries these fields:

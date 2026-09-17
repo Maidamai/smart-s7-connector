@@ -71,14 +71,16 @@ public final class NettyS7Transport implements S7Transport {
 
     @Override
     public void connect() throws IOException {
-        if (this.channel != null && this.channel.isActive()) {
-            return;
-        }
         if (this.closed.get()) {
-            // terminal state: a closed or failed transport is never revived;
-            // callers must create a new instance (see docs/api-contract.md)
+            // terminal state (checked first: close() may have won the race
+            // while the channel is still tearing down): a closed or failed
+            // transport is never revived; callers must create a new
+            // instance (see docs/api-contract.md)
             throw new S7TransportException("connect", this.config, 0,
                     "transport is closed; create a new instance instead of reconnecting");
+        }
+        if (this.channel != null && this.channel.isActive()) {
+            return;
         }
         this.eventLoopGroup = new NioEventLoopGroup(1);
         final Bootstrap bootstrap = new Bootstrap();

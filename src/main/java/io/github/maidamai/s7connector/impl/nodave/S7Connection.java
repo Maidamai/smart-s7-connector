@@ -97,10 +97,16 @@ public abstract class S7Connection {
             PDU p2;
             int errorState;
             errorState = this.exchange(p);
+            final ResultSet rs = new ResultSet();
+            if (errorState != Nodave.RESULT_OK) {
+                // frame-level violation already reported (and the transport
+                // closed) by exchange; do not parse the frame it rejected
+                rs.setErrorState(errorState);
+                return rs;
+            }
 
             p2 = new PDU(this.msgIn, this.PDUstartIn);
             errorState = p2.setupReceivedPDU(this.answLen - this.PDUstartIn);
-            final ResultSet rs = new ResultSet();
             if (errorState != Nodave.RESULT_OK) {
                 rs.setErrorState(errorState);
                 return rs;

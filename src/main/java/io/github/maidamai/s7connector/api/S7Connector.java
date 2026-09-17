@@ -30,13 +30,17 @@ import java.io.IOException;
  * <h2>Error categories</h2>
  *
  * <ul>
- *   <li>{@link IOException} signals a transport failure (connect, timeout,
- *   I/O error, or a response that violates the S7 protocol). After such a
- *   failure the underlying transport is closed and the connector is
- *   permanently unusable; create a new connector.</li>
+ *   <li>{@link IOException} signals a transport failure (connect failure,
+ *   timeout, I/O error). After such a failure the underlying transport is
+ *   closed and the connector is permanently unusable; create a new
+ *   connector.</li>
  *   <li>{@link io.github.maidamai.s7connector.exception.S7Exception} signals
- *   that the PLC rejected the operation or the response was invalid. For a
- *   rejected write, the message carries the fields {@code status},
+ *   that the PLC rejected the operation or the response violated the S7
+ *   protocol; it is unchecked and carries the raw status and the target
+ *   coordinates. Frame-level violations (truncated frames, lying lengths,
+ *   mismatched PDU references) also close the transport, so after such an
+ *   {@code S7Exception} the connector may be unusable and must be replaced.
+ *   For a rejected write, the message carries the fields {@code status},
  *   {@code area}, {@code db}, {@code offset}, {@code length}, and
  *   {@code confirmedWrittenBytes}; already-acknowledged chunks are not rolled
  *   back.</li>
