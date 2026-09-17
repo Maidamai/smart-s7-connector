@@ -3,6 +3,77 @@
 All notable changes to this project are documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.0.0-rc.2] - 2026-09-17
+
+Second pre-release candidate: the round-3 bean-mapping fixes plus the
+fail-closed published-artifact verification flow. Published as signed
+artifacts — main/sources/Javadoc JARs, the POM, one `.asc` per artifact, a
+four-entry `SHA256SUMS`, and the armored public signing key — attached to
+the GitHub Release for tag `v1.0.0-rc.2`; **not yet on Maven Central**
+(publication pending maintainer Central Portal credentials — see
+`docs/releasing.md`). `v1.0.0-rc.1` remains published and unchanged: it
+contains the primitive-array defect fixed here and carries no signed POM,
+so it fails the new verification gates by design.
+
+Scope statements kept honest by design:
+
+- Real-PLC verification has **not** been performed (unchanged since rc.1);
+  see `docs/verification/live-plc-attempt-2026-09-17.md`.
+- rc.1 was re-verified consumer-side against its actually downloaded
+  attachments, which reproduced the primitive-array defect on the published
+  JAR (`docs/verification/consumer-smoke-rc1-2026-09-17.md`). rc.2 is
+  verified through the fail-closed gate: checksums, signatures against the
+  pinned primary fingerprint, signed POM coordinates, license resources,
+  isolated-repository install and public-API success paths —
+  `docs/verification/consumer-smoke-rc2-2026-09-17.md`.
+
+### Fixed
+
+- **Primitive component arrays are extracted into the declared component
+  type** (3rd audit round, C1). `boolean[]`, `short[]`, `int[]`, `long[]`,
+  `byte[]`, ... fields used to receive a `Boolean[]`/`Short[]`/... wrapper
+  array and every `dispense` failed with a wrapped
+  `IllegalArgumentException` (present in the published `v1.0.0-rc.1`;
+  reproduced consumer-side against the downloaded Release JAR). Arrays are
+  now allocated with the field's declared component type and filled element
+  by element (`Array.set` unboxes); wrapper component arrays keep their
+  behavior. Array fields whose declared component type is not one the S7
+  type maps onto (e.g. `int[]` with `DINT`, which maps to `long`/`Long`)
+  are rejected at parse time instead of failing on the first
+  extract/insert; the accepted component types are part of
+  `docs/api-contract.md`.
+- **A layout's overall end offset can no longer wrap to a negative block
+  size** (3rd audit round, C2). `byteOffset + coveredBytes` above
+  `Integer.MAX_VALUE` (e.g. `byteOffset = 2147483647`, `coverage = 1`) is
+  rejected at parse time with `S7Exception`; previously the `long`→`int`
+  cast silently produced a negative block size. Bit addressing uses `long`
+  intermediates so extreme `bitOffset` values cannot wrap into negative
+  buffer indexes.
+
+### Added
+
+- **Fail-closed published-artifact verification** (`consumer-smoke/`): the
+  verifier downloads the actual Release assets and gates Maven execution
+  behind download, SHA256SUMS, GPG signature (exit status plus structured
+  `VALIDSIG` checked against the pinned full primary fingerprint, valid
+  bound signing subkeys accepted, wrong/expired/revoked/weak-hash
+  signatures rejected), signed-POM project coordinates and license
+  resources. The armored public key is taken from a trusted file, a
+  Release asset or a keyserver, always re-checked against the pinned
+  fingerprint. Offline regressions cover the trust bootstrap with real
+  disposable keys.
+- **Independent consumer CI**: a current-commit consumer-contract job, the
+  verifier regression suite, and a `Verify published release` workflow
+  that runs the fail-closed gate against the uploaded bytes of every
+  published Release.
+
+### Changed
+
+- The live-PLC attempt report no longer publishes private network details
+  (placeholders replace host addresses) and no longer over-infers from the
+  failed handshakes; the historical "no artifact published yet" note in the
+  development section below is now explicitly framed as pre-rc.1 status.
+
 ## [1.0.0-rc.1] - 2026-09-17
 
 First public **pre-release candidate**. All changes below (the full hardening
@@ -87,25 +158,6 @@ static audit of commit `00ecbbe`.
   `confirmedWrittenBytes`, the failing chunk's offset/length and the cause,
   instead of a bare `IOException` with no context. The failing chunk's
   outcome is explicitly documented as unknown.
-- **Primitive component arrays are extracted into the declared component
-  type** (3rd audit round, C1). `boolean[]`, `short[]`, `int[]`, `long[]`,
-  `byte[]`, ... fields used to receive a `Boolean[]`/`Short[]`/... wrapper
-  array and every `dispense` failed with a wrapped
-  `IllegalArgumentException` (present in the published `v1.0.0-rc.1`;
-  reproduced consumer-side against the downloaded Release JAR, see
-  `docs/verification/consumer-smoke-rc1-2026-09-17.md`). Arrays are now
-  allocated with the field's declared component type and filled element by
-  element (`Array.set` unboxes); wrapper component arrays keep their
-  behavior. Array fields whose declared component type is not one the S7
-  type maps onto (e.g. `int[]` with `DINT`, which maps to `long`/`Long`)
-  are rejected at parse time instead of failing on the first
-  extract/insert; the accepted component types are part of
-  `docs/api-contract.md`.
-- **A layout's overall end offset can no longer wrap to a negative block
-  size** (3rd audit round, C2). `byteOffset + coveredBytes` above
-  `Integer.MAX_VALUE` (e.g. `byteOffset = 2147483647`, `coverage = 1`) is
-  rejected at parse time with `S7Exception`; previously the `long`→`int`
-  cast silently produced a negative block size.
 
 ### Added
 
