@@ -1,0 +1,47 @@
+name: Verify published release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published version without v (for example 1.0.0-rc.2)
+        required: true
+        type: string
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  published-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Verify uploaded bytes before consumer execution
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          version="${REQUESTED_VERSION}"
+          if [ -z "${version}" ]; then version="${RELEASE_TAG#v}"; fi
+          python3 consumer-smoke/verify_release.py --version "${version}"
+      - name: Publish verification logs (not signing keys)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: published-artifact-verification
+          path: |
+            consumer-smoke/downloads/**/SHA256SUMS
+            consumer-smoke/downloads/**/*.log
+            consumer-smoke/target/surefire-reports/**
+          retention-days: 14

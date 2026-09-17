@@ -1,0 +1,58 @@
+name: Consumer contract and verifier
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: consumer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verifier-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Offline trust-gate and real temporary-key regressions
+        run: |
+          command -v gpg
+          python3 -m unittest discover -s consumer-smoke/tests -v
+
+  consumer-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - name: Build this commit and consume it from an isolated repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$(mktemp -d "${RUNNER_TEMP}/s7-consumer.XXXXXX")"
+          version="$(python3 -c 'import xml.etree.ElementTree as E; print(E.parse("pom.xml").getroot().findtext("{http://maven.apache.org/POM/4.0.0}version"))')"
+          # Main regression suite runs in CI; this job independently compiles
+          # and consumes the current artifact, not the known-bad old rc.1.
+          ./mvnw -B -ntp -DskipTests "-Dmaven.repo.local=${repo}" install
+          ./mvnw -B -ntp -f consumer-smoke/pom.xml "-Ds7.version=${version}" "-Dmaven.repo.local=${repo}" clean test
+      - name: Consumer test report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: consumer-contract-reports
+          path: consumer-smoke/target/surefire-reports/**
+          retention-days: 7
