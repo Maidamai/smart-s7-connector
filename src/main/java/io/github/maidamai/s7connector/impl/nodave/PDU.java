@@ -450,6 +450,11 @@ public final class PDU {
      */
     int testResultData() {
         int res = Nodave.RESULT_CANNOT_EVALUATE_PDU; // just assume the worst
+        if (this.dlen < 1) {
+            // no data area at all: do not touch mem[data], it may point past
+            // the received frame (or hold stale bytes of an earlier response)
+            return res;
+        }
         if ((this.mem[this.data] == (byte) 255) && (this.dlen > 4)) {
             res = Nodave.RESULT_OK;
             this.udata = this.data + 4;

@@ -99,12 +99,16 @@ public abstract class S7Connection {
             errorState = this.exchange(p);
 
             p2 = new PDU(this.msgIn, this.PDUstartIn);
-            p2.setupReceivedPDU(this.answLen - this.PDUstartIn);
+            errorState = p2.setupReceivedPDU(this.answLen - this.PDUstartIn);
+            final ResultSet rs = new ResultSet();
+            if (errorState != Nodave.RESULT_OK) {
+                rs.setErrorState(errorState);
+                return rs;
+            }
             /*
              * if (p2.udlen == 0) { dataPointer = 0; answLen = 0; return
              * Nodave.RESULT_CPU_RETURNED_NO_DATA; }
              */
-            final ResultSet rs = new ResultSet();
             if (p2.mem[p2.param + 0] == PDU.FUNC_READ) {
                 int numResults = p2.mem[p2.param + 1];
                 rs.results = new Result[numResults];

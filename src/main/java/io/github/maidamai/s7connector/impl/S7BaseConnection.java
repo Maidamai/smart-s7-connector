@@ -167,7 +167,9 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
         while (position < bytes) {
             final int chunk = Math.min(bytes - position, this.maxReadBytes);
             final int ret = this.dc.readBytes(area, areaNumber, currentOffset, chunk, chunkBuffer);
-            checkResult(ret);
+            if (ret != Nodave.RESULT_OK) {
+                throw readFailure(area, areaNumber, currentOffset, chunk, ret);
+            }
             System.arraycopy(chunkBuffer, 0, result, position, chunk);
             position += chunk;
             currentOffset += chunk;
@@ -216,6 +218,26 @@ public abstract class S7BaseConnection implements S7Connector, S7ReadWindowProvi
         if (value < 0) {
             throw new IllegalArgumentException(name + " must not be negative: " + value);
         }
+    }
+
+    /**
+     * Builds the public failure for a rejected read: it keeps the raw PLC
+     * status code and the target coordinates. Reads never produce partial
+     * results: a failing chunk fails the whole call.
+     */
+    private static S7Exception readFailure(
+            final DaveArea area,
+            final int areaNumber,
+            final int offset,
+            final int length,
+            final int result) {
+        return new S7Exception("S7 read failed: status=" + result
+                + " (0x" + String.format(Locale.ROOT, "%04X", result & 0xFFFF) + ')'
+                + ": " + Nodave.strerror(result)
+                + "; area=" + area.name()
+                + ", db=" + areaNumber
+                + ", offset=" + offset
+                + ", length=" + length);
     }
 
     /**

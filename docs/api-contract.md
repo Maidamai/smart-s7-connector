@@ -54,10 +54,10 @@ reassembled. Without PDU negotiation the default window for both is 96 bytes
 | Exception | Meaning | Connection state afterwards |
 |---|---|---|
 | `IOException` | Transport failure: connect failure, timeout, I/O error, or an S7-protocol-violating response | Transport closed; connector permanently unusable |
-| `S7Exception` | The PLC rejected the operation (e.g. a write), or a parsed response is invalid | Connector remains usable unless the failure also closed the transport |
+| `S7Exception` | The PLC rejected the operation (a read or a write), or a parsed response is invalid | Connector remains usable unless the failure also closed the transport |
 | `IllegalArgumentException` | Invalid arguments (null area/buffer, negative numbers, unmappable class) | Unchanged |
 
-For a rejected write the `S7Exception` message carries these fields:
+For a rejected read or write the `S7Exception` message carries these fields:
 
 - `status` — raw PLC result code (decimal and hex) plus `Nodave.strerror` text
 - `area`, `db`, `offset`, `length` — the coordinates of the failing chunk

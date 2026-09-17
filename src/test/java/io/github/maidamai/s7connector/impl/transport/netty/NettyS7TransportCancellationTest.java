@@ -138,6 +138,23 @@ class NettyS7TransportCancellationTest {
     }
 
     @Test
+    void connectAfterCloseIsRejected() throws IOException {
+        try (SilentServer server = new SilentServer(false)) {
+            final NettyS7Transport transport = new NettyS7Transport(config(server.getPort(), 500));
+            try {
+                transport.connect();
+                transport.close();
+
+                assertThrows(S7TransportException.class, transport::connect,
+                        "a closed transport must not be revivable; create a new instance instead");
+                assertTrue(transport.isClosed(), "the transport stays closed");
+            } finally {
+                transport.close();
+            }
+        }
+    }
+
+    @Test
     void builderRejectsNullPlcType() {
         final IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> S7ConnectorFactory.buildTCPConnector(null),

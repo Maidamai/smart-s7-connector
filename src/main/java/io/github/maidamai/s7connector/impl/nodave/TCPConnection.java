@@ -105,11 +105,13 @@ public final class TCPConnection extends S7Connection {
      * {@inheritDoc}
      *
      * Every request gets a sequence number that the PLC must echo. Frames
-     * that cannot be attributed to the current request (mismatched PDU
-     * number, non-DT COTP header, protocol violations, truncated PDUs)
-     * poison the stream, so the transport is closed and the error code is
-     * returned; a proper PLC error answer (type 2/3 header error) does not
-     * close the connection.
+     * that cannot be attributed to the current request or cannot be parsed
+     * safely (mismatched PDU number, non-DT COTP header, truncated or
+     * over-long PDUs, wrong protocol id or PDU type) poison the stream, so
+     * the transport is closed and the error code is returned. Item-level
+     * rejections in an otherwise well-formed frame (a clean PLC error
+     * answer, a wrong function code, or a mismatching item count) are
+     * returned as error codes without closing the connection.
      */
     @Override
     public int exchange(final PDU p1) throws IOException {

@@ -147,6 +147,35 @@ class S7ResponseValidationTest {
         }
     }
 
+    @Test
+    void readResponseWithoutAnyDataAreaIsRejected() throws IOException {
+        try (LocalLoopback loopback = LocalLoopback.open()) {
+            loopback.server.queueRawResponse(readResponseWithoutData(), true);
+
+            assertThrows(Exception.class,
+                    () -> loopback.connector.read(DaveArea.DB, DB_NUMBER, 16, 0),
+                    "a read response with dlen=0 must fail cleanly, not trust stale bytes");
+        }
+    }
+
+    @Test
+    void readItemRejectionThrowsS7ExceptionWithTargetContext() throws IOException {
+        try (LocalLoopback loopback = LocalLoopback.open()) {
+            loopback.server.queueRawResponse(readItemRejectedFrame(0x0A), true);
+
+            final S7Exception failure = assertThrows(S7Exception.class,
+                    () -> loopback.connector.read(DaveArea.DB, DB_NUMBER, 16, 4),
+                    "a rejected read item must fail the public read call");
+
+            final String message = failure.getMessage();
+            assertTrue(message.contains("status=10"), "message should carry the raw PLC status, but was: " + message);
+            assertTrue(message.contains("area=DB"), "message should carry the area, but was: " + message);
+            assertTrue(message.contains("db=1"), "message should carry the DB number, but was: " + message);
+            assertTrue(message.contains("offset=4"), "message should carry the offset, but was: " + message);
+            assertTrue(message.contains("length=16"), "message should carry the length, but was: " + message);
+        }
+    }
+
     private static void assertEqualsWriteRequest(final LocalS1500Server.WriteRequest request, final int offset, final int length) {
         assertTrue(request.getOffset() == offset && request.getLength() == length,
                 "expected write chunk offset=" + offset + " length=" + length + " but was offset="
@@ -231,6 +260,48 @@ class S7ResponseValidationTest {
         frame[dataHead + 2] = (byte) ((data.length * 8) / 0x100);
         frame[dataHead + 3] = (byte) ((data.length * 8) % 0x100);
         System.arraycopy(data, 0, frame, dataHead + 4, data.length);
+        return frame;
+    }
+
+    /**
+     * A read response frame that announces no data area at all (dlen=0):
+     * well-formed at the frame level, unusable at the item level.
+     */
+    private static byte[] readResponseWithoutData() {
+        final byte[] frame = new byte[4 + 3 + 12 + 2];
+        frame[0] = 0x03;
+        frame[1] = 0x00;
+        frame[3] = (byte) frame.length;
+        frame[4] = 0x02;
+        frame[5] = (byte) 0xF0;
+        frame[6] = (byte) 0x80;
+        frame[7] = 0x32;
+        frame[8] = 0x03;
+        frame[14] = 0x02; // plen
+        frame[19] = 0x04; // FUNC_READ
+        frame[20] = 0x01; // item count
+        return frame;
+    }
+
+    /**
+     * A read response whose single item carries an error code instead of a
+     * 0xFF success marker and a data head.
+     */
+    private static byte[] readItemRejectedFrame(final int itemStatus) {
+        final byte[] frame = new byte[4 + 3 + 12 + 2 + 1];
+        frame[0] = 0x03;
+        frame[1] = 0x00;
+        frame[3] = (byte) frame.length;
+        frame[4] = 0x02;
+        frame[5] = (byte) 0xF0;
+        frame[6] = (byte) 0x80;
+        frame[7] = 0x32;
+        frame[8] = 0x03;
+        frame[14] = 0x02; // plen
+        frame[16] = 0x01; // dlen: one status byte
+        frame[19] = 0x04; // FUNC_READ
+        frame[20] = 0x01; // item count
+        frame[21] = (byte) itemStatus;
         return frame;
     }
 
