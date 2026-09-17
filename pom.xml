@@ -8,13 +8,11 @@
     <artifactId>smart-s7-connector</artifactId>
     <groupId>io.github.maidamai</groupId>
     <packaging>jar</packaging>
-    <!-- 1.0.0-rc.2: second pre-release candidate. Fixes the round-3 bean
-         mapping defects (primitive array extraction, end-offset overflow)
-         and ships the fail-closed published-artifact verification flow.
-         Released as GitHub Release artifacts (including a signed POM and
-         the public signing key); Central publication is pending maintainer
-         credentials; see docs/releasing.md. -->
-    <version>1.0.0-rc.2</version>
+    <!-- 1.0.0-SNAPSHOT: development line after the v1.0.0-rc.2 pre-release
+         (GitHub Releases, 2026-09-17). Central publication of rc.2 or a
+         final 1.0.0 is pending maintainer credentials; see
+         docs/releasing.md. -->
+    <version>1.0.0-SNAPSHOT</version>
     <name>smart-s7-connector</name>
     <description>Lightweight Siemens S7 PLC communication library for Java.</description>
     <url>https://github.com/Maidamai/smart-s7-connector</url>
